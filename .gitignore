@@ -1,0 +1,48 @@
+# ===== Java / Maven =====
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+hs_err_pid*
+replay_pid*
+
+# ===== Node / Vue =====
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+
+# ===== 环境变量与密钥（绝不提交）=====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ===== 日志与运行时数据 =====
+logs/
+*.log
+data/
+docker/volumes/
+
+# ===== 构建产物 =====
+build/
+out/
