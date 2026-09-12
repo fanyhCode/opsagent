@@ -1,9 +1,31 @@
 # OpsAgent 后端配置文件
 server:
-  # 服务监听端口，访问地址为 http://虚拟机IP:8080
+  # 服务监听端口，访问地址为 http://localhost:8080（开发阶段后端跑在 Windows 上）
   port: 8080
 
 spring:
   application:
     # 应用名，后续接入监控与注册中心时会用到
     name: opsagent-backend
+
+  # 数据源配置：告诉 Spring Boot 数据库在哪、用什么账号连接
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 数据库运行在 Ubuntu 虚拟机的 Docker 容器里，所以地址是虚拟机的 IP
+    # serverTimezone 必须显式指定，否则 MySQL 8 可能报时区错误
+    # allowPublicKeyRetrieval=true 允许在没有 SSL 的情况下取回公钥（MySQL 8 默认加密方式需要）
+    url: jdbc:mysql://192.168.169.129:3306/opsagent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: opsagent123
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    # 开启下划线转驼峰：数据库的 server_name 会自动映射到 Java 的 serverName
+    map-underscore-to-camel-case: true
+    # 把执行的 SQL 打印到控制台，学习阶段非常有用，生产环境应关掉
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      # 主键使用数据库自增策略
+      id-type: auto
