@@ -1,0 +1,9 @@
+# OpsAgent 后端配置文件
+server:
+  # 服务监听端口，访问地址为 http://虚拟机IP:8080
+  port: 8080
+
+spring:
+  application:
+    # 应用名，后续接入监控与注册中心时会用到
+    name: opsagent-backend
