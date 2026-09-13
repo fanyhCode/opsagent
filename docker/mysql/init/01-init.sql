@@ -2,6 +2,12 @@
 -- 这个文件被挂载到 MySQL 容器的 /docker-entrypoint-initdb.d 目录，
 -- 容器第一次启动（数据卷为空）时会自动执行，用来建库、建表和写入初始数据。
 
+-- 强制当前会话使用 utf8mb4。
+-- 为什么必须写这一行：mysql 客户端连接时的默认字符集可能不是 utf8mb4，
+-- 那样脚本里的中文（UTF-8 字节）会被当成 Latin-1 字符存进数据库，
+-- 查询出来就会变成 "æœ¬é¡¹ç›®" 这种乱码（学名叫双重编码）。
+SET NAMES utf8mb4;
+
 -- 建库：字符集用 utf8mb4，才能正确存储中文和 emoji
 CREATE DATABASE IF NOT EXISTS opsagent
     DEFAULT CHARACTER SET utf8mb4

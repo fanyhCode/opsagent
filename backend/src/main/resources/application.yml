@@ -14,7 +14,9 @@ spring:
     # 数据库运行在 Ubuntu 虚拟机的 Docker 容器里，所以地址是虚拟机的 IP
     # serverTimezone 必须显式指定，否则 MySQL 8 可能报时区错误
     # allowPublicKeyRetrieval=true 允许在没有 SSL 的情况下取回公钥（MySQL 8 默认加密方式需要）
-    url: jdbc:mysql://192.168.169.129:3306/opsagent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    # characterEncoding=UTF-8 + connectionCollation=utf8mb4_unicode_ci：显式声明这条连接使用 utf8mb4，
+    # 避免中文在传输过程中被按其他字符集解码成乱码
+    url: jdbc:mysql://192.168.169.129:3306/opsagent?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: opsagent123
 
