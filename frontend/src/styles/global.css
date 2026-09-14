@@ -1,0 +1,240 @@
+/* ============================================================
+   全局样式与动画
+   说明：所有动态效果都用纯 CSS / 原生 JS 实现，不引入额外依赖，
+   这样不会增加打包体积，也不用再装第三方动画库。
+   ============================================================ */
+
+:root {
+  --ops-primary: #22d3ee;
+  --ops-primary-deep: #0891b2;
+  --ops-accent: #6366f1;
+  --ops-bg-0: #060a12;
+  --ops-bg-1: #0b1220;
+  --ops-bg-2: #101b2d;
+  --ops-text: #e2e8f0;
+  --ops-text-dim: #94a3b8;
+  --ops-border: rgba(34, 211, 238, 0.22);
+  --ops-glass: rgba(17, 27, 45, 0.55);
+}
+
+/* Element Plus 主题色覆盖：默认蓝色改成青色科技风 */
+html.dark {
+  --el-color-primary: #22d3ee;
+  --el-color-primary-light-3: #38bdf8;
+  --el-color-primary-light-5: #0ea5e9;
+  --el-color-primary-light-7: #0369a1;
+  --el-color-primary-light-8: #075985;
+  --el-color-primary-light-9: #0c4a6e;
+  --el-color-primary-dark-2: #0891b2;
+  --el-bg-color: #0b1220;
+  --el-bg-color-overlay: #101b2d;
+  --el-fill-color-blank: #0b1220;
+  --el-border-color: rgba(148, 163, 184, 0.18);
+  --el-border-color-light: rgba(148, 163, 184, 0.14);
+  --el-text-color-primary: #e2e8f0;
+  --el-text-color-regular: #cbd5e1;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  background: var(--ops-bg-0);
+  color: var(--ops-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 滚动条美化，暗色下更协调 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 211, 238, 0.5);
+}
+
+/* ==================== 动画关键帧 ==================== */
+
+/* 由下而上淡入，用于卡片入场 */
+@keyframes ops-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 纯淡入 */
+@keyframes ops-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 上下漂浮，用于 Logo 和装饰 */
+@keyframes ops-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+/* 呼吸光晕，用于状态点、Logo 光环 */
+@keyframes ops-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.65);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(34, 211, 238, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+  }
+}
+
+/* 旋转，用于刷新按钮 */
+@keyframes ops-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 高光扫过，用于按钮和标题 */
+@keyframes ops-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* 抖动，用于登录失败反馈 */
+@keyframes ops-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-9px);
+  }
+  40%,
+  80% {
+    transform: translateX(9px);
+  }
+}
+
+/* 渐变光斑缓慢移动，用于背景装饰 */
+@keyframes ops-orb {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(40px, -30px) scale(1.08);
+  }
+  66% {
+    transform: translate(-30px, 25px) scale(0.95);
+  }
+}
+
+/* 光标闪烁 */
+@keyframes ops-caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ==================== 通用工具类 ==================== */
+
+.fade-up {
+  animation: ops-fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.fade-in {
+  animation: ops-fade-in 0.9s ease both;
+}
+
+/* 延迟工具类，做"依次入场"的层次感 */
+.delay-1 {
+  animation-delay: 0.08s;
+}
+.delay-2 {
+  animation-delay: 0.16s;
+}
+.delay-3 {
+  animation-delay: 0.24s;
+}
+.delay-4 {
+  animation-delay: 0.32s;
+}
+
+/* 玻璃拟态面板：半透明 + 背景模糊 + 细边框 */
+.glass-panel {
+  background: var(--ops-glass);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--ops-border);
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(2, 6, 23, 0.55);
+}
+
+/* 顶部渐变细线，让卡片更精致 */
+.top-line::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--ops-primary), transparent);
+  opacity: 0.9;
+}
+
+/* 表格行悬浮微光 */
+.el-table__row {
+  transition: background-color 0.25s ease, transform 0.25s ease;
+}
+.el-table__row:hover {
+  background-color: rgba(34, 211, 238, 0.08) !important;
+}
+
+/* 按钮悬浮上浮 + 阴影 */
+.el-button {
+  transition: transform 0.2s ease, box-shadow 0.25s ease, filter 0.2s ease;
+}
+.el-button:hover {
+  transform: translateY(-1px);
+}
+
+/* 输入框聚焦光晕 */
+.el-input__wrapper {
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.7), 0 0 18px rgba(34, 211, 238, 0.28) !important;
+}
