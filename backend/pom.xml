@@ -50,6 +50,13 @@
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
             <version>3.5.9</version>
         </dependency>
+
+        <!-- Spring Security 的加密模块：只引入加密工具（BCrypt），暂不引入完整的安全过滤器链，
+             这样当前接口不会被自动拦截。等做 JWT 时再引入完整依赖。 -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

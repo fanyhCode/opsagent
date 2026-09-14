@@ -18,6 +18,9 @@ spring:
     # 避免中文在传输过程中被按其他字符集解码成乱码
     url: jdbc:mysql://192.168.169.129:3306/opsagent?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
+    # 注意：这是"虚拟机里 Docker 容器中那台 MySQL"的密码。
+    # 你电脑上还有一个本地 MySQL 服务（Windows 服务 MySQL80，Navicat 里的 mysql8 连接就是它），
+    # 那是以前项目用的，和本项目无关，别把两个密码搞混。
     password: opsagent123
 
 # MyBatis-Plus 配置
