@@ -1,6 +1,7 @@
 package com.opsagent.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.opsagent.common.BizException;
 import com.opsagent.entity.SysUser;
 import com.opsagent.mapper.SysUserMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,10 +31,10 @@ public class SysUserService {
      */
     public SysUser register(String username, String password, String nickname) {
         if (username == null || username.isBlank()) {
-            throw new IllegalArgumentException("用户名不能为空");
+            throw new BizException("用户名不能为空");
         }
         if (password == null || password.length() < 6) {
-            throw new IllegalArgumentException("密码长度不能少于 6 位");
+            throw new BizException("密码长度不能少于 6 位");
         }
 
         // 用 LambdaQueryWrapper 构造查询条件，等价于 WHERE username = ?
@@ -41,7 +42,7 @@ public class SysUserService {
         Long existCount = sysUserMapper.selectCount(
                 new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username));
         if (existCount != null && existCount > 0) {
-            throw new IllegalArgumentException("用户名已存在");
+            throw new BizException("用户名已存在");
         }
 
         SysUser user = new SysUser();
@@ -67,14 +68,14 @@ public class SysUserService {
                 new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username));
 
         if (user == null) {
-            throw new IllegalArgumentException("用户名或密码错误");
+            throw new BizException("用户名或密码错误");
         }
         // matches(明文, 数据库里的哈希) 由 BCrypt 内部完成校验
         if (!passwordEncoder.matches(password, user.getPassword())) {
-            throw new IllegalArgumentException("用户名或密码错误");
+            throw new BizException("用户名或密码错误");
         }
         if (user.getStatus() != null && user.getStatus() == 0) {
-            throw new IllegalArgumentException("账号已被禁用，请联系管理员");
+            throw new BizException("账号已被禁用，请联系管理员");
         }
         return user;
     }

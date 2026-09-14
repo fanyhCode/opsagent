@@ -1,9 +1,15 @@
 package com.opsagent.controller;
 
+import com.opsagent.common.BizException;
+import com.opsagent.common.Result;
 import com.opsagent.dto.LoginRequest;
 import com.opsagent.dto.RegisterRequest;
 import com.opsagent.entity.SysUser;
+import com.opsagent.security.JwtService;
+import com.opsagent.security.LoginUser;
+import com.opsagent.security.UserContext;
 import com.opsagent.service.SysUserService;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,19 +19,21 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 认证接口：注册与登录。
+ * 认证接口：注册、登录、获取当前登录用户。
  *
- * 这一版的返回值先用简单的 Map 表示成功/失败，
- * 下一步会引入统一的响应结构和 JWT，届时会统一改造。
+ * /api/auth/register 和 /api/auth/login 在拦截器白名单里，不需要令牌；
+ * 其它接口（包括 /api/auth/me）都必须携带令牌。
  */
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
     private final SysUserService sysUserService;
+    private final JwtService jwtService;
 
-    public AuthController(SysUserService sysUserService) {
+    public AuthController(SysUserService sysUserService, JwtService jwtService) {
         this.sysUserService = sysUserService;
+        this.jwtService = jwtService;
     }
 
     /**
@@ -33,49 +41,48 @@ public class AuthController {
      * 请求体示例：{"username":"admin","password":"admin123","nickname":"管理员"}
      */
     @PostMapping("/register")
-    public Map<String, Object> register(@RequestBody RegisterRequest request) {
-        try {
-            SysUser user = sysUserService.register(
-                    request.username(), request.password(), request.nickname());
-            return success("注册成功", toSafeMap(user));
-        } catch (IllegalArgumentException e) {
-            // 业务校验失败属于"可预期的错误"，返回失败原因而不是 500 异常
-            return fail(e.getMessage());
-        }
+    public Result<Map<String, Object>> register(@RequestBody RegisterRequest request) {
+        SysUser user = sysUserService.register(
+                request.username(), request.password(), request.nickname());
+        return Result.ok("注册成功", toSafeMap(user));
     }
 
     /**
      * POST /api/auth/login
      * 请求体示例：{"username":"admin","password":"admin123"}
+     *
+     * 登录成功后返回令牌，前端要把它存起来（通常放 localStorage），
+     * 之后每次请求都在请求头里带上：Authorization: Bearer <token>
      */
     @PostMapping("/login")
-    public Map<String, Object> login(@RequestBody LoginRequest request) {
-        try {
-            SysUser user = sysUserService.login(request.username(), request.password());
-            return success("登录成功", toSafeMap(user));
-        } catch (IllegalArgumentException e) {
-            return fail(e.getMessage());
+    public Result<Map<String, Object>> login(@RequestBody LoginRequest request) {
+        SysUser user = sysUserService.login(request.username(), request.password());
+
+        // 签发令牌：JWT 里放用户 id、用户名、角色，不放密码
+        String token = jwtService.generateToken(user.getId(), user.getUsername(), user.getRole());
+
+        Map<String, Object> data = toSafeMap(user);
+        data.put("token", token);
+        return Result.ok("登录成功", data);
+    }
+
+    /**
+     * GET /api/auth/me
+     * 返回当前登录用户。这个接口用来演示"受保护的接口"：
+     * 不带令牌会返回 401，带有效令牌才返回用户信息。
+     */
+    @GetMapping("/me")
+    public Result<LoginUser> me() {
+        LoginUser currentUser = UserContext.get();
+        if (currentUser == null) {
+            throw new BizException(401, "未登录");
         }
-    }
-
-    private Map<String, Object> success(String message, Object data) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("success", true);
-        result.put("message", message);
-        result.put("data", data);
-        return result;
-    }
-
-    private Map<String, Object> fail(String message) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("success", false);
-        result.put("message", message);
-        return result;
+        return Result.ok(currentUser);
     }
 
     /**
      * 把用户对象转成可以安全返回给前端的结构。
-     * 刻意不包含 password 字段——即使数据库里存的是哈希，也没有必要返回给客户端。
+     * 刻意不包含 password 字段——即使数据库里存的是哈希，也没必要返回给客户端。
      */
     private Map<String, Object> toSafeMap(SysUser user) {
         Map<String, Object> data = new LinkedHashMap<>();

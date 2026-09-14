@@ -1,5 +1,6 @@
 package com.opsagent.controller;
 
+import com.opsagent.common.Result;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,15 +27,15 @@ public class HealthController {
     /**
      * GET /api/health
      *
-     * 返回服务当前状态。用 Map 返回是为了演示 JSON 序列化，
-     * 后续接入实体类和统一响应封装后，这里会替换成规范的返回结构。
+     * 返回服务当前状态。这是唯一不需要登录就能访问的业务接口，
+     * 用于部署后快速确认服务是否活着。
      */
     @GetMapping("/health")
-    public Map<String, Object> health() {
+    public Result<Map<String, Object>> health() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("status", "UP");
         result.put("service", "opsagent-backend");
         result.put("time", LocalDateTime.now().toString());
-        return result;
+        return Result.ok(result);
     }
 }

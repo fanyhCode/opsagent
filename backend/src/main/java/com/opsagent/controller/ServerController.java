@@ -1,5 +1,6 @@
 package com.opsagent.controller;
 
+import com.opsagent.common.Result;
 import com.opsagent.entity.ServerInfo;
 import com.opsagent.service.ServerInfoService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,9 +28,10 @@ public class ServerController {
     /**
      * GET /api/servers
      * 返回数据库中所有服务器的列表，数据来自 MySQL。
+     * 该接口需要携带登录令牌才能访问。
      */
     @GetMapping
-    public List<ServerInfo> list() {
-        return serverInfoService.listAll();
+    public Result<List<ServerInfo>> list() {
+        return Result.ok(serverInfoService.listAll());
     }
 }
