@@ -3,6 +3,7 @@ package com.opsagent.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.LocalDateTime;
 
@@ -29,6 +30,21 @@ public class ServerInfo {
 
     /** SSH 端口，默认 22 */
     private Integer port;
+
+    /** SSH 登录用户名 */
+    private String username;
+
+    /**
+     * SSH 登录密码。
+     *
+     * 安全要点：这个字段加 @JsonProperty(access = WRITE_ONLY)，
+     * 意味着"可以从请求体写入，但永远不会被序列化进接口响应"。
+     * 这样即使前台接口直接返回 ServerInfo 对象，密码也不会泄露给浏览器。
+     *
+     * 后续（M5 安全阶段）会升级为：密码加密存储 + 优先使用 SSH 密钥登录。
+     */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    private String password;
 
     /** 状态：ONLINE / OFFLINE / UNKNOWN */
     private String status;
@@ -75,6 +91,22 @@ public class ServerInfo {
 
     public void setPort(Integer port) {
         this.port = port;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
     }
 
     public String getStatus() {

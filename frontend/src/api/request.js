@@ -29,6 +29,13 @@ request.interceptors.request.use((config) => {
 // 响应拦截器：集中处理结果
 request.interceptors.response.use(
   (response) => {
+    // 滑动续期：后端在响应头里下发新令牌时，静默替换本地令牌
+    // （axios 会把响应头名统一转成小写，所以这里写 x-new-token）
+    const newToken = response.headers['x-new-token']
+    if (newToken) {
+      useUserStore().setToken(newToken)
+    }
+
     const res = response.data
     // 后端约定 code=200 才是业务成功，其它都算失败
     if (res.code !== 200) {
@@ -40,8 +47,9 @@ request.interceptors.response.use(
   },
   (error) => {
     if (error.response && error.response.status === 401) {
-      // 令牌失效：提示 + 清除登录状态 + 跳回登录页
-      ElMessage.error('登录已过期，请重新登录')
+      // 401 的两种来源：令牌无效/过期，或者会话超过最大时长（后端会把原因写在 message 里）
+      const message = error.response.data?.message || '登录已过期，请重新登录'
+      ElMessage.error(message)
       useUserStore().logout()
       router.push({ name: 'login' })
     } else {

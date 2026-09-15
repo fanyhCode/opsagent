@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS server
     name        VARCHAR(64)  NOT NULL COMMENT '服务器名称，例如 ubuntu-vm',
     host        VARCHAR(64)  NOT NULL COMMENT '主机地址（IP 或域名）',
     port        INT          NOT NULL DEFAULT 22 COMMENT 'SSH 端口，默认 22',
+    username    VARCHAR(64)           DEFAULT NULL COMMENT 'SSH 登录用户名',
+    password    VARCHAR(128)          DEFAULT NULL COMMENT 'SSH 登录密码（开发阶段明文，M5 阶段改为加密存储或密钥登录）',
     status      VARCHAR(16)  NOT NULL DEFAULT 'UNKNOWN' COMMENT '状态：ONLINE 在线 / OFFLINE 离线 / UNKNOWN 未知',
     os          VARCHAR(64)           DEFAULT NULL COMMENT '操作系统版本，例如 Ubuntu 24.04 LTS',
     description VARCHAR(255)          DEFAULT NULL COMMENT '备注说明',
@@ -65,3 +67,26 @@ CREATE TABLE IF NOT EXISTS sys_user
     UNIQUE KEY uk_username (username)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4 COMMENT ='系统用户表';
+
+-- ------------------------------------------------------------
+-- 表 3：server_metric —— 服务器指标采集表
+-- 作用：定时任务每隔一段时间采集一次 CPU/内存/磁盘/负载并写入本表，
+-- 形成历史曲线数据（监控页面的趋势图就是查这张表）。
+--
+-- 为什么建 (server_id, created_at) 联合索引？
+-- 因为趋势图的查询永远是"某台服务器、最近一段时间"，联合索引能让这类查询走索引而不是全表扫描。
+-- 这是时序数据表的标准做法。
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS server_metric
+(
+    id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    server_id    BIGINT        NOT NULL COMMENT '服务器 id，对应 server.id',
+    cpu_usage    DECIMAL(5, 2) NOT NULL DEFAULT 0 COMMENT 'CPU 使用率（%）',
+    memory_usage DECIMAL(5, 2) NOT NULL DEFAULT 0 COMMENT '内存使用率（%）',
+    disk_usage   DECIMAL(5, 2) NOT NULL DEFAULT 0 COMMENT '根分区使用率（%）',
+    load_average DECIMAL(6, 2) NOT NULL DEFAULT 0 COMMENT '1 分钟平均负载',
+    created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '采集时间',
+    PRIMARY KEY (id),
+    KEY idx_server_time (server_id, created_at)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT ='服务器指标采集表';

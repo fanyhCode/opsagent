@@ -32,6 +32,16 @@ export const useUserStore = defineStore('user', {
       localStorage.setItem('opsagent_user', JSON.stringify(user))
     },
 
+    /**
+     * 静默更新令牌。
+     * 后端开启滑动续期后，会在响应头 X-New-Token 里下发新令牌，
+     * 前端拿到就替换掉旧的，用户完全无感知。
+     */
+    setToken(token) {
+      this.token = token
+      localStorage.setItem('opsagent_token', token)
+    },
+
     /** 退出登录：清空内存与本地存储 */
     logout() {
       this.token = ''

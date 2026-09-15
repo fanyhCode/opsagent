@@ -36,4 +36,12 @@ public class ServerInfoService {
     public List<ServerInfo> listAll() {
         return serverInfoMapper.selectList(null);
     }
+
+    /**
+     * 按 id 查询单台服务器，查不到返回 null。
+     * 监控、SSH 执行等模块都需要先拿到服务器信息（含主机地址与登录凭据）。
+     */
+    public ServerInfo getById(Long id) {
+        return serverInfoMapper.selectById(id);
+    }
 }

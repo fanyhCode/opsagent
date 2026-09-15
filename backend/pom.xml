@@ -76,6 +76,14 @@
             <version>0.12.6</version>
             <scope>runtime</scope>
         </dependency>
+
+        <!-- JSch（维护版）：Java 通过 SSH 连接远程 Linux 服务器执行命令。
+             集团队里通常说的 "JSch" 就是它；维护版修复了原版 com.jcraft:jsch 的多处安全问题。 -->
+        <dependency>
+            <groupId>com.github.mwiede</groupId>
+            <artifactId>jsch</artifactId>
+            <version>0.2.20</version>
+        </dependency>
     </dependencies>
 
     <build>

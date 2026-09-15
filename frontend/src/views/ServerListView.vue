@@ -49,6 +49,11 @@ function handleLogout() {
   router.push({ name: 'login' })
 }
 
+/** 跳转到该服务器的监控详情页 */
+function goMonitor(row) {
+  router.push({ name: 'monitor', params: { id: row.id } })
+}
+
 onMounted(loadServers)
 </script>
 
@@ -120,11 +125,11 @@ onMounted(loadServers)
         <el-skeleton v-if="!firstLoadDone" :rows="4" animated style="padding: 12px" />
 
         <el-table v-else :data="servers" stripe class="ops-table">
-          <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="name" label="服务器名称" width="170" />
-          <el-table-column prop="host" label="主机地址" width="170" />
-          <el-table-column prop="port" label="SSH 端口" width="110" />
-          <el-table-column label="状态" width="130">
+          <el-table-column prop="id" label="ID" width="72" align="center" />
+          <el-table-column prop="name" label="服务器名称" min-width="150" />
+          <el-table-column prop="host" label="主机地址" min-width="150" />
+          <el-table-column prop="port" label="SSH 端口" width="100" align="center" />
+          <el-table-column label="状态" width="120" align="center">
             <template #default="{ row }">
               <span class="status">
                 <i class="dot" :class="row.status === 'ONLINE' ? 'dot-online' : 'dot-offline'"></i>
@@ -132,9 +137,19 @@ onMounted(loadServers)
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="os" label="操作系统" width="190" />
-          <el-table-column prop="description" label="备注" />
+          <!-- show-overflow-tooltip：内容过长时省略并悬浮显示，避免把单元格挤成竖排文字 -->
+          <el-table-column prop="os" label="操作系统" min-width="170" show-overflow-tooltip />
+          <el-table-column prop="description" label="备注" min-width="220" show-overflow-tooltip />
+          <el-table-column label="操作" width="112" align="center" fixed="right">
+            <template #default="{ row }">
+              <el-button type="primary" plain size="small" @click="goMonitor(row)">监控</el-button>
+            </template>
+          </el-table-column>
         </el-table>
+
+        <div class="table-foot">
+          共 <span class="metric-value">{{ servers.length }}</span> 台服务器
+        </div>
       </section>
     </main>
   </div>
@@ -387,6 +402,13 @@ onMounted(loadServers)
 .ops-table :deep(.el-table__header th) {
   background: rgba(148, 163, 184, 0.06) !important;
   font-weight: 600;
+}
+
+.table-foot {
+  padding: 14px 2px 10px;
+  font-size: 12.5px;
+  color: #7d90a8;
+  text-align: right;
 }
 
 .status {

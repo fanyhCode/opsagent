@@ -12,11 +12,16 @@ USE opsagent;
 
 -- 把自己这台 Ubuntu 虚拟机登记为被监控服务器。
 -- 如果 IP 变了（在虚拟机执行 ip a 查看 ens33 的地址），这里和 application.yml 要同步修改。
-INSERT INTO server (name, host, port, status, os, description)
+INSERT INTO server (name, host, port, username, status, os, description)
 SELECT 'ubuntu-vm',
        '192.168.169.129',
        22,
+       'the-word',
        'ONLINE',
        'Ubuntu 24.04 LTS',
        '本项目的被监控服务器（VMware 虚拟机）'
 WHERE NOT EXISTS (SELECT 1 FROM server WHERE name = 'ubuntu-vm');
+
+-- 注意：SSH 密码不写在这个文件里！本仓库是公开的，任何凭据都不能提交上去。
+-- 密码请在本机用 Navicat 手动执行下面这句（只在自己的开发环境执行）：
+--   UPDATE server SET password = '你的虚拟机登录密码' WHERE name = 'ubuntu-vm';

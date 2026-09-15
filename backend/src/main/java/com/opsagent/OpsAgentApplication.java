@@ -3,6 +3,7 @@ package com.opsagent;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * OpsAgent 后端启动类。
@@ -16,9 +17,12 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  * @MapperScan 告诉 MyBatis-Plus：com.opsagent.mapper 包下的接口都是数据库操作接口，
  * 由框架在启动时自动生成实现类（我们只写接口，不写实现）。
+ *
+ * @EnableScheduling 开启定时任务能力，监控模块里的 @Scheduled 方法才会自动执行。
  */
 @SpringBootApplication
 @MapperScan("com.opsagent.mapper")
+@EnableScheduling
 public class OpsAgentApplication {
 
     public static void main(String[] args) {

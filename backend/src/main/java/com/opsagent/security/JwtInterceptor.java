@@ -10,21 +10,27 @@ import org.springframework.http.HttpMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
- * JWT 校验拦截器。
+ * JWT 校验拦截器（含滑动续期）。
  *
- * 执行时机：请求进入 Controller 之前（preHandle）。
- * 校验逻辑：
- * 1. 从请求头 Authorization 里取出令牌，格式约定为 "Bearer <token>"；
- * 2. 校验签名与有效期，解析出用户信息；
- * 3. 校验通过 → 把用户放进 UserContext，放行；
- * 4. 校验失败 → 直接返回 401，不再进入业务代码。
+ * 执行时机：请求进入 Controller 之前（preHandle）。处理顺序：
+ * 1. 从请求头 Authorization 取出令牌（格式 Bearer <token>）；
+ * 2. 验签 + 校验有效期，解析出用户与会话信息；
+ * 3. 如果会话已超过最大时长 → 401，要求重新登录；
+ * 4. 如果令牌快过期 → 顺手续一张新令牌，放进响应头 X-New-Token；
+ * 5. 把用户放进 UserContext 后放行。
+ *
+ * 为什么用响应头下发新令牌？
+ * 因为令牌续期是"顺带发生"的，不应该改变接口本身的返回结构；
+ * 放在响应头里，前端拦截器统一读取即可，业务代码完全无感。
  */
 public class JwtInterceptor implements HandlerInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(JwtInterceptor.class);
 
-    /** 约定的请求头前缀，标准写法是 "Bearer " 后面跟令牌 */
     private static final String BEARER_PREFIX = "Bearer ";
+
+    /** 续期令牌的响应头名称 */
+    public static final String HEADER_NEW_TOKEN = "X-New-Token";
 
     private final JwtService jwtService;
     private final ObjectMapper objectMapper;
@@ -37,7 +43,7 @@ public class JwtInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws Exception {
-        // 浏览器跨域时的预检请求（OPTIONS）不带令牌，直接放行
+        // 跨域预检请求不带令牌，直接放行
         if (HttpMethod.OPTIONS.matches(request.getMethod())) {
             return true;
         }
@@ -50,9 +56,28 @@ public class JwtInterceptor implements HandlerInterceptor {
 
         String token = authorization.substring(BEARER_PREFIX.length()).trim();
         try {
-            LoginUser user = jwtService.parseToken(token);
-            UserContext.set(user);
+            TokenPayload payload = jwtService.parse(token);
+
+            // 会话超过绝对上限，即使令牌本身还没过期，也必须重新登录
+            if (jwtService.isSessionExpired(payload.sessionStart())) {
+                writeUnauthorized(response, "会话已到期，请重新登录");
+                return false;
+            }
+
+            UserContext.set(payload.user());
+
+            // 快过期就顺手续期，用户无感知
+            if (jwtService.shouldRenew(payload.expiresAt())) {
+                String newToken = jwtService.renew(payload);
+                response.setHeader(HEADER_NEW_TOKEN, newToken);
+                // 如果将来前后端分离部署（跨域），必须显式暴露这个响应头，
+                // 否则浏览器端读不到它。现在走 Vite 代理是同源，加上也不影响。
+                response.setHeader("Access-Control-Expose-Headers", HEADER_NEW_TOKEN);
+                log.info("令牌已自动续期：user={}", payload.user().username());
+            }
+
             return true;
+
         } catch (Exception e) {
             // 令牌过期、被篡改、格式错误都会走到这里
             log.warn("令牌校验失败：{}", e.getMessage());
