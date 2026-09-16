@@ -1,0 +1,84 @@
+# ============================================================
+# OpsAgent 一键部署编排
+#
+# 启动：docker compose -f docker/docker-compose.yml up -d --build
+# 停止：docker compose -f docker/docker-compose.yml down
+# 日志：docker compose -f docker/docker-compose.yml logs -f backend
+#
+# 四个服务：
+#   mysql         平台自己的数据库
+#   backend       Spring Boot 后端（Agent、监控、审计）
+#   frontend      Vue3 前端 + Nginx（对外只暴露 80 端口，并反代 /api）
+#   order-service 模拟的被诊断服务（演示故障用）
+# ============================================================
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: opsagent-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-opsagent123}
+      MYSQL_DATABASE: opsagent
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "3306:3306"
+    volumes:
+      # 复用之前手动创建的命名卷，已有的用户、监控、对话数据都不会丢
+      - opsagent-mysql-data:/var/lib/mysql
+      # 空库首次启动时会自动执行这里的建表与初始化脚本
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-opsagent123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ../backend
+    container_name: opsagent-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      # 覆盖 application.yml 里的数据源地址：容器之间用服务名 mysql 互相访问
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/opsagent?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-opsagent123}
+      # AI Key 从 .env 读取，绝不出现在代码或镜像里
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ../frontend
+    container_name: opsagent-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      # 对外只暴露 80 端口，用户访问 http://虚拟机IP 即可
+      - "80:80"
+
+  order-service:
+    build:
+      context: ./demo/order-service
+    container_name: order-service
+    restart: unless-stopped
+    volumes:
+      # 故障开关目录：宿主机 touch 一个 fault 文件就能注入故障，rm 就恢复
+      - ${HOME}/opsagent-data/order-service:/app/flag
+
+volumes:
+  opsagent-mysql-data:
+    external: true

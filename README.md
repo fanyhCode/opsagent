@@ -74,7 +74,44 @@ opsagent
 └── README.md
 ```
 
-## 六、开发路线
+## 六、快速部署
+
+整套平台（后端 + 前端 + 数据库 + 模拟被诊断服务）可以用 Docker Compose 一键启动。
+
+### 1. 准备环境变量
+
+```bash
+cd ~/opsagent
+cp .env.example .env
+vi .env            # 填入 DEEPSEEK_API_KEY 与 DASHSCOPE_API_KEY
+mkdir -p ~/opsagent-data/order-service
+```
+
+`.env` 已被 `.gitignore` 排除，不会提交到仓库。
+
+### 2. 启动
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+docker compose --env-file .env -f docker/docker-compose.yml ps
+```
+
+### 3. 访问
+
+```text
+http://<虚拟机IP>          # 控制台（Nginx 统一入口，前端静态资源 + /api 反向代理）
+docker stats              # 查看各容器资源占用
+```
+
+### 4. 一键演示
+
+```bash
+bash ~/opsagent/scripts/demo.sh
+```
+
+脚本会自动完成：注入故障 → 登录 → Agent 自主诊断 → 打印工具调用轨迹与结论 → 恢复故障 → 回放操作审计。
+
+## 七、开发路线
 
 - [ ] M0 环境准备：Ubuntu 虚拟机、Docker、Git 与 GitHub 打通
 - [ ] M1 基础平台：Spring Boot + Vue3 + MySQL + 登录注册 + JWT + RBAC
@@ -84,6 +121,6 @@ opsagent
 - [ ] M5 RAG + 安全 + 审计：pgvector 知识库、命令安全执行引擎、人工确认、审计
 - [ ] M6 部署与包装：Docker Compose 部署、Nginx、演示脚本、面试文档
 
-## 七、项目状态
+## 八、项目状态
 
 🚧 开发中
