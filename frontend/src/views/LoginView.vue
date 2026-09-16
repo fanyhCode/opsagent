@@ -22,7 +22,7 @@ const loading = ref(false)
 const shake = ref(false)
 
 const loginForm = ref({ username: '', password: '' })
-const registerForm = ref({ username: '', password: '', nickname: '' })
+const registerForm = ref({ username: '', password: '', confirmPassword: '' })
 
 /* ---------------- 打字机标语 ---------------- */
 const slogans = [
@@ -96,9 +96,24 @@ async function handleRegister() {
     shakeCard()
     return
   }
+  if (registerForm.value.password.length < 6) {
+    ElMessage.warning('密码长度不能少于 6 位')
+    shakeCard()
+    return
+  }
+  // 两次密码必须一致，避免用户手误打错又记不住
+  if (registerForm.value.password !== registerForm.value.confirmPassword) {
+    ElMessage.warning('两次输入的密码不一致')
+    shakeCard()
+    return
+  }
   loading.value = true
   try {
-    await register(registerForm.value)
+    // 只提交用户名和密码：昵称由后端默认取用户名，不再让用户填
+    await register({
+      username: registerForm.value.username,
+      password: registerForm.value.password
+    })
     ElMessage.success('注册成功，请登录')
     loginForm.value.username = registerForm.value.username
     loginForm.value.password = ''
@@ -252,23 +267,30 @@ function shakeCard() {
             </el-form>
           </el-tab-pane>
 
-          <el-tab-pane label="注册" name="register">
-            <el-form :model="registerForm" @submit.prevent>
-              <el-form-item>
-                <el-input v-model="registerForm.username" placeholder="用户名（唯一）" size="large" />
-              </el-form-item>
-              <el-form-item>
-                <el-input v-model="registerForm.nickname" placeholder="昵称（可不填）" size="large" />
-              </el-form-item>
-              <el-form-item>
-                <el-input
-                  v-model="registerForm.password"
-                  type="password"
-                  placeholder="密码（至少 6 位）"
-                  size="large"
-                  show-password
-                />
-              </el-form-item>
+        <el-tab-pane label="注册" name="register">
+          <el-form :model="registerForm" @submit.prevent>
+            <el-form-item>
+              <el-input v-model="registerForm.username" placeholder="用户名（唯一）" size="large" />
+            </el-form-item>
+            <el-form-item>
+              <el-input
+                v-model="registerForm.password"
+                type="password"
+                placeholder="密码（至少 6 位）"
+                size="large"
+                show-password
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-input
+                v-model="registerForm.confirmPassword"
+                type="password"
+                placeholder="确认密码（再输入一次）"
+                size="large"
+                show-password
+                @keyup.enter="handleRegister"
+              />
+            </el-form-item>
               <el-button
                 class="submit-btn"
                 type="success"
