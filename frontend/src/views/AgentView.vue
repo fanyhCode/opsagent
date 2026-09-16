@@ -320,7 +320,12 @@ onMounted(() => {
           <div class="samples">
             <span class="samples-label">试试这样问：</span>
             <el-tag
-              v-for="item in ['这台服务器现在正常吗？', 'CPU 占用最高的进程是哪些？', 'Redis 为什么会 OOM？']"
+              v-for="item in [
+                '这台服务器现在正常吗？',
+                '服务器为什么变慢了？',
+                '帮我看看 order-service 的日志有什么异常',
+                'Redis 为什么会 OOM？'
+              ]"
               :key="item"
               class="sample-tag"
               size="small"

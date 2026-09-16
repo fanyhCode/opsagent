@@ -57,6 +57,10 @@ public class AiChatService {
             3. 工具返回错误（比如 SSH 连不上）时，如实说明失败原因并给出排查建议；
             4. 你目前只有只读工具，不能执行重启容器、删除文件这类写操作。
                遇到这类诉求，给出建议命令并提醒需要人工确认后再执行。
+            5. 排查"服务器变慢""服务异常"这类问题时，除了看系统指标，还要看容器：
+               先用 getContainerList 看有哪些容器在运行，再对可疑容器使用 getContainerLogs、
+               searchLogs、getErrorStatistics 查日志，最后把"指标异常"和"日志异常"关联起来下结论，
+               不要只看一个指标就下判断。
 
             对话要求：
             对话是多轮的，用户可能会用"它""那台机器""刚才说的服务"这类指代，
@@ -66,12 +70,14 @@ public class AiChatService {
     private final ChatClient chatClient;
     private final AiUsageService aiUsageService;
     private final SystemMonitorTools systemMonitorTools;
+    private final ContainerTools containerTools;
     private final ChatSessionService chatSessionService;
     private final ObjectMapper objectMapper;
 
     public AiChatService(ChatClient.Builder chatClientBuilder,
                          AiUsageService aiUsageService,
                          SystemMonitorTools systemMonitorTools,
+                         ContainerTools containerTools,
                          ChatSessionService chatSessionService,
                          ObjectMapper objectMapper) {
         this.chatClient = chatClientBuilder
@@ -79,6 +85,7 @@ public class AiChatService {
                 .build();
         this.aiUsageService = aiUsageService;
         this.systemMonitorTools = systemMonitorTools;
+        this.containerTools = containerTools;
         this.chatSessionService = chatSessionService;
         this.objectMapper = objectMapper;
     }
@@ -122,7 +129,7 @@ public class AiChatService {
 
             ChatResponse response = chatClient.prompt()
                     .messages(modelMessages)
-                    .tools(systemMonitorTools)
+                    .tools(systemMonitorTools, containerTools)
                     .call()
                     .chatResponse();
 
