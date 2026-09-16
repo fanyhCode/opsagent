@@ -38,8 +38,18 @@ public class ContainerTools {
     /** 容器名白名单：以字母数字开头，只允许字母数字与 _ . - */
     private static final Pattern SAFE_CONTAINER = Pattern.compile("^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$");
 
-    /** 搜索关键字白名单：中英文、数字与 _ . - */
-    private static final Pattern SAFE_KEYWORD = Pattern.compile("^[a-zA-Z0-9_.\\-\\u4e00-\\u9fa5]{1,40}$");
+    /**
+     * 搜索关键字白名单：中英文、数字、空格，以及 _ . - : 这几个安全符号。
+     *
+     * 为什么必须允许空格？真实的报错关键字往往带空格，例如
+     * "Communications link failure"、"Connection is not available"。
+     * 最初的规则不允许空格，导致 Agent 的合法搜索被拦住（这是实际测试发现的问题）。
+     *
+     * 而真正危险的字符——单引号、双引号、反引号、美元符、分号、竖线、& 等——
+     * 一律不允许，因为它们能让内容从单引号字符串里"逃出来"执行别的命令。
+     */
+    private static final Pattern SAFE_KEYWORD =
+            Pattern.compile("^[a-zA-Z0-9_.\\-:\\u4e00-\\u9fa5 ]{1,60}$");
 
     private final SshExecutor sshExecutor;
     private final ServerInfoService serverInfoService;
@@ -98,7 +108,8 @@ public class ContainerTools {
     public String searchLogs(
             @ToolParam(description = "服务器 id") Long serverId,
             @ToolParam(description = "容器名称") String containerName,
-            @ToolParam(description = "搜索关键字，只能是中英文、数字和 _ . -") String keyword,
+            @ToolParam(description = "搜索关键字，支持中英文、数字、空格和 _ . - : ，"
+                    + "例如 timeout、Connection is not available") String keyword,
             @ToolParam(description = "最多返回多少行，1~100，默认 30", required = false) Integer maxLines) {
         long start = System.currentTimeMillis();
         try {
@@ -181,7 +192,7 @@ public class ContainerTools {
     /** 关键字校验：只允许安全字符，避免拼进 shell 后变成注入命令 */
     private String requireKeyword(String keyword) {
         if (keyword == null || !SAFE_KEYWORD.matcher(keyword).matches()) {
-            throw new BizException("搜索关键字不合法（只支持中英文、数字和 _ . -）：" + keyword);
+            throw new BizException("搜索关键字不合法（支持中英文、数字、空格和 _ . - :）：" + keyword);
         }
         return keyword;
     }
