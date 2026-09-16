@@ -68,6 +68,9 @@ public class AiChatService {
                特别注意：当用户**明确要求**重启某个容器时，必须调用 proposeRestartContainer 提交，
                而不是只在回答里给建议或直接拒绝——人工确认环节由用户在界面上完成。
                不确定某个操作是否被允许时，先用 listSupportedOperations 查询。
+            7. 遇到"某类故障怎么排查/怎么处理"这类问题时，
+               先调用 searchKnowledge 检索知识库里的历史故障案例与处置手册，
+               再结合工具采集到的真实数据给出结论，并在回答中注明引用了哪篇案例。
 
             对话要求：
             对话是多轮的，用户可能会用"它""那台机器""刚才说的服务"这类指代，
@@ -79,6 +82,7 @@ public class AiChatService {
     private final SystemMonitorTools systemMonitorTools;
     private final ContainerTools containerTools;
     private final OperationTools operationTools;
+    private final KnowledgeTools knowledgeTools;
     private final ChatSessionService chatSessionService;
     private final ObservabilityService observabilityService;
     private final ObjectMapper objectMapper;
@@ -88,6 +92,7 @@ public class AiChatService {
                          SystemMonitorTools systemMonitorTools,
                          ContainerTools containerTools,
                          OperationTools operationTools,
+                         KnowledgeTools knowledgeTools,
                          ChatSessionService chatSessionService,
                          ObservabilityService observabilityService,
                          ObjectMapper objectMapper) {
@@ -98,6 +103,7 @@ public class AiChatService {
         this.systemMonitorTools = systemMonitorTools;
         this.containerTools = containerTools;
         this.operationTools = operationTools;
+        this.knowledgeTools = knowledgeTools;
         this.chatSessionService = chatSessionService;
         this.observabilityService = observabilityService;
         this.objectMapper = objectMapper;
@@ -144,7 +150,7 @@ public class AiChatService {
 
             ChatResponse response = chatClient.prompt()
                     .messages(modelMessages)
-                    .tools(systemMonitorTools, containerTools, operationTools)
+                    .tools(systemMonitorTools, containerTools, operationTools, knowledgeTools)
                     .call()
                     .chatResponse();
 

@@ -81,3 +81,20 @@ opsagent:
     balance-warn-threshold: 5
     # 余额查询结果的缓存时长（秒）。余额变化慢，没必要每次刷新页面都去查一次接口
     balance-cache-seconds: 300
+
+  # ============ RAG 故障知识库配置 ============
+  rag:
+    # 向量化接口地址（阿里云百炼 OpenAI 兼容模式）。
+    # 注意：如果控制台给你的地址带有业务空间前缀，
+    # 要换成 https://{你的WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # API Key 同样从环境变量读取，绝不写死
+    api-key: ${DASHSCOPE_API_KEY:not-configured}
+    # 向量模型：控制台里你能调用的 embedding 模型名，换模型时只改这一行
+    model: qwen3.7-text-embedding
+    # 文档切片大小（字符数）与相邻切片的重叠长度。
+    # 重叠是为了避免一句话被硬切开导致语义丢失。
+    chunk-size: 400
+    chunk-overlap: 80
+    # 检索时返回最相关的几条切片
+    top-k: 3

@@ -199,3 +199,43 @@ CREATE TABLE IF NOT EXISTS agent_execution
     KEY idx_tool (tool_name)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4 COMMENT ='Agent 工具调用记录表';
+
+-- ------------------------------------------------------------
+-- 表 9：knowledge_document —— 故障知识库文档表
+-- 存的是"故障案例/运维手册"原文，例如"HikariCP 连接池耗尽怎么排查"。
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS knowledge_document
+(
+    id         BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    title      VARCHAR(200) NOT NULL COMMENT '文档标题',
+    category   VARCHAR(32)  NOT NULL DEFAULT 'GENERAL' COMMENT '分类：LINUX/DOCKER/JVM/MYSQL/REDIS/GENERAL',
+    content    TEXT         NOT NULL COMMENT '文档正文',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_title (title)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT ='故障知识库文档表';
+
+-- ------------------------------------------------------------
+-- 表 10：knowledge_chunk —— 文档切片表（RAG 的检索单元）
+-- 一篇文档会被切成若干段，每段单独向量化后存 embedding 字段。
+-- 为什么要切片？整篇文档太长，检索时粒度太粗；切成段后能精确定位到
+-- "哪一段话"和用户的问题最相关。
+--
+-- embedding 存的是 JSON 数组字符串（如 [0.12,-0.03,...]）。
+-- 规模不大时，在 Java 里算余弦相似度完全够用，省掉一整套向量数据库的部署成本；
+-- 数据量上到十万级再迁移到 pgvector / Milvus。
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS knowledge_chunk
+(
+    id          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    document_id BIGINT      NOT NULL COMMENT '所属文档 id',
+    chunk_index INT         NOT NULL DEFAULT 0 COMMENT '该文档内的第几段',
+    content     TEXT        NOT NULL COMMENT '切片内容',
+    embedding   LONGTEXT             DEFAULT NULL COMMENT '向量（JSON 数组），未索引时为 NULL',
+    created_at  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+    KEY idx_document (document_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT ='知识库文档切片表';
