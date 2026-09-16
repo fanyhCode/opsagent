@@ -61,6 +61,12 @@ public class AiChatService {
                先用 getContainerList 看有哪些容器在运行，再对可疑容器使用 getContainerLogs、
                searchLogs、getErrorStatistics 查日志，最后把"指标异常"和"日志异常"关联起来下结论，
                不要只看一个指标就下判断。
+            6. 你不能直接执行任何写操作（重启容器、删除文件等）。
+               如果确实需要重启容器，请调用 proposeRestartContainer 提交给用户人工确认，
+               并在回答中明确告诉用户"已提交待确认，需要你在界面上确认后才会执行"。
+               特别注意：当用户**明确要求**重启某个容器时，必须调用 proposeRestartContainer 提交，
+               而不是只在回答里给建议或直接拒绝——人工确认环节由用户在界面上完成。
+               不确定某个操作是否被允许时，先用 listSupportedOperations 查询。
 
             对话要求：
             对话是多轮的，用户可能会用"它""那台机器""刚才说的服务"这类指代，
@@ -71,6 +77,7 @@ public class AiChatService {
     private final AiUsageService aiUsageService;
     private final SystemMonitorTools systemMonitorTools;
     private final ContainerTools containerTools;
+    private final OperationTools operationTools;
     private final ChatSessionService chatSessionService;
     private final ObjectMapper objectMapper;
 
@@ -78,6 +85,7 @@ public class AiChatService {
                          AiUsageService aiUsageService,
                          SystemMonitorTools systemMonitorTools,
                          ContainerTools containerTools,
+                         OperationTools operationTools,
                          ChatSessionService chatSessionService,
                          ObjectMapper objectMapper) {
         this.chatClient = chatClientBuilder
@@ -86,6 +94,7 @@ public class AiChatService {
         this.aiUsageService = aiUsageService;
         this.systemMonitorTools = systemMonitorTools;
         this.containerTools = containerTools;
+        this.operationTools = operationTools;
         this.chatSessionService = chatSessionService;
         this.objectMapper = objectMapper;
     }
@@ -123,13 +132,15 @@ public class AiChatService {
         modelMessages.add(new UserMessage(userMessage));
 
         ToolCallRecorder.start();
+        // 把会话 id 放进线程上下文：工具里"提出操作"时需要记录来源会话
+        ChatContextHolder.set(session.getId());
 
         try {
             long start = System.currentTimeMillis();
 
             ChatResponse response = chatClient.prompt()
                     .messages(modelMessages)
-                    .tools(systemMonitorTools, containerTools)
+                    .tools(systemMonitorTools, containerTools, operationTools)
                     .call()
                     .chatResponse();
 
@@ -152,8 +163,11 @@ public class AiChatService {
         } catch (Exception e) {
             // 异常路径也要清理 ThreadLocal，否则线程复用时会串数据
             ToolCallRecorder.finish();
+            ChatContextHolder.clear();
             log.error("调用大模型失败", e);
             throw new BizException("调用 AI 服务失败：" + AiErrorTranslator.friendly(e));
+        } finally {
+            ChatContextHolder.clear();
         }
     }
 

@@ -9,6 +9,11 @@ import {
   getUsage,
   listSessions
 } from '../api/ai'
+import {
+  approveOperation as approveOperationApi,
+  listPendingOperations,
+  rejectOperation
+} from '../api/operation'
 import { useUserStore } from '../stores/user'
 
 /**
@@ -30,6 +35,13 @@ const usageLoading = ref(false)
 const sessions = ref([])
 const currentSessionId = ref(null)
 const messages = ref([welcomeMessage()])
+const pendingOperations = ref([])
+
+/** 只有 OPERATOR / ADMIN 能确认执行操作（和后端校验一致，前端只是提前禁用按钮） */
+const canApprove = computed(() => {
+  const role = (userStore.user?.role || '').toUpperCase()
+  return role === 'ADMIN' || role === 'OPERATOR'
+})
 
 function welcomeMessage() {
   return {
@@ -81,6 +93,51 @@ async function loadSessions() {
   try {
     const res = await listSessions()
     sessions.value = res.data || []
+  } catch (e) {
+    // 提示由拦截器统一处理
+  }
+}
+
+async function loadPending() {
+  try {
+    const res = await listPendingOperations()
+    pendingOperations.value = res.data || []
+  } catch (e) {
+    // 提示由拦截器统一处理
+  }
+}
+
+function riskTagType(risk) {
+  if (risk === 'HIGH') return 'danger'
+  if (risk === 'MEDIUM') return 'warning'
+  return 'info'
+}
+
+/** 确认执行：这是"人工确认"环节，点下去命令才会真正在服务器上跑 */
+async function approveOperation(id) {
+  try {
+    await ElMessageBox.confirm(
+      '确认执行这条命令吗？它会在目标服务器上真正执行。',
+      '确认执行',
+      { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return // 用户取消
+  }
+  try {
+    const res = await approveOperationApi(id)
+    ElMessage.success('执行完成：' + res.data.executionStatus)
+    loadPending()
+  } catch (e) {
+    // 提示由拦截器统一处理
+  }
+}
+
+async function rejectOperationById(id) {
+  try {
+    await rejectOperation(id)
+    ElMessage.success('已拒绝该操作')
+    loadPending()
   } catch (e) {
     // 提示由拦截器统一处理
   }
@@ -153,6 +210,8 @@ async function send(text) {
     })
     loadUsage()
     loadSessions()
+    // Agent 可能在本轮提交了待确认操作，刷新一下待确认列表
+    loadPending()
   } catch (e) {
     messages.value.push({
       role: 'assistant',
@@ -176,6 +235,7 @@ function scrollToBottom() {
 onMounted(() => {
   loadUsage()
   loadSessions()
+  loadPending()
 })
 </script>
 
@@ -241,6 +301,47 @@ onMounted(() => {
         show-icon
         :title="`账户余额仅剩 ${balanceText}，已低于告警阈值 ¥${usage.threshold}，请及时充值，否则 Agent 将无法继续回答`"
       />
+
+      <!-- 待人工确认的操作：Agent 提出后必须人工确认才会执行 -->
+      <section v-if="pendingOperations.length" class="pending-panel glass-panel fade-up">
+        <div class="pending-head">
+          <span class="title-mark"></span>
+          <span class="pending-title">待确认操作（{{ pendingOperations.length }}）</span>
+          <span class="pending-tip">Agent 只能提出操作，人工确认后才会在服务器上执行</span>
+        </div>
+
+        <div v-for="op in pendingOperations" :key="op.id" class="pending-item">
+          <div class="pending-main">
+            <div class="pending-line">
+              <el-tag :type="riskTagType(op.riskLevel)" size="small" effect="dark">
+                {{ op.riskLevel }}
+              </el-tag>
+              <span class="pending-op">{{ op.operation }}</span>
+              <span class="pending-target">{{ op.target }}</span>
+              <span class="pending-time">{{ formatTime(op.createdAt) }}</span>
+            </div>
+            <div class="pending-cmd">$ {{ op.commandPreview }}</div>
+            <div class="pending-reason">理由：{{ op.reason || '—' }}</div>
+          </div>
+          <div class="pending-actions">
+            <el-button
+              size="small"
+              type="primary"
+              :disabled="!canApprove"
+              @click="approveOperation(op.id)"
+            >
+              确认执行
+            </el-button>
+            <el-button size="small" :disabled="!canApprove" @click="rejectOperationById(op.id)">
+              拒绝
+            </el-button>
+          </div>
+        </div>
+
+        <div v-if="!canApprove" class="pending-note">
+          当前角色（{{ userStore.user?.role }}）只能查看，确认执行需要 OPERATOR 或 ADMIN 角色
+        </div>
+      </section>
 
       <div class="chat-layout">
         <!-- 会话列表 -->
@@ -502,6 +603,98 @@ onMounted(() => {
 
 .refresh-icon.spinning {
   animation: ops-spin 1s linear infinite;
+}
+
+/* ---------- 待确认操作 ---------- */
+.pending-panel {
+  padding: 14px 18px 10px;
+  margin-bottom: 12px;
+  border-color: rgba(251, 191, 36, 0.28);
+}
+
+.pending-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pending-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.pending-tip {
+  margin-left: auto;
+  font-size: 12px;
+  color: #7d90a8;
+}
+
+.pending-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.06);
+  border: 1px solid rgba(251, 191, 36, 0.18);
+}
+
+.pending-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pending-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pending-op {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.pending-target {
+  font-size: 12.5px;
+  color: var(--ops-primary);
+}
+
+.pending-time {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: #6b7d93;
+}
+
+.pending-cmd {
+  margin-top: 6px;
+  font-family: Consolas, Monaco, "Courier New", monospace;
+  font-size: 12.5px;
+  color: #fbbf24;
+  word-break: break-all;
+}
+
+.pending-reason {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #93a7bd;
+}
+
+.pending-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
+.pending-note {
+  padding-bottom: 4px;
+  font-size: 12px;
+  color: #fbbf24;
 }
 
 /* ---------- 会话 + 对话 两栏布局 ---------- */
