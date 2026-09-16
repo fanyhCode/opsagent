@@ -1,6 +1,7 @@
 package com.opsagent.controller;
 
 import com.opsagent.ai.AiChatService;
+import com.opsagent.ai.ChatResult;
 import com.opsagent.ai.AiUsageService;
 import com.opsagent.common.Result;
 import com.opsagent.dto.ChatRequest;
@@ -38,11 +39,13 @@ public class AiController {
      */
     @PostMapping("/chat")
     public Result<Map<String, Object>> chat(@RequestBody ChatRequest request) {
-        String answer = aiChatService.chat(request.message());
+        ChatResult result = aiChatService.chat(request.message());
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("question", request.message());
-        data.put("answer", answer);
+        data.put("answer", result.answer());
+        // 把 Agent 的工具调用轨迹一并返回，前端可以展示"它做了什么"
+        data.put("toolCalls", result.toolCalls());
         return Result.ok(data);
     }
 

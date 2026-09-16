@@ -65,7 +65,12 @@ async function send(text) {
 
   try {
     const res = await chat(content)
-    messages.value.push({ role: 'assistant', content: res.data.answer })
+    messages.value.push({
+      role: 'assistant',
+      content: res.data.answer,
+      // 后端返回的 Agent 工具调用轨迹（这一步 Agent 实际做了什么）
+      toolCalls: res.data.toolCalls || []
+    })
     // 每次对话后刷新用量（后端刚写入一条 ai_usage 记录）
     loadUsage()
   } catch (e) {
@@ -166,7 +171,24 @@ onMounted(loadUsage)
             <div class="avatar" :class="msg.role">
               {{ msg.role === 'user' ? '我' : 'AI' }}
             </div>
-            <div class="bubble">{{ msg.content }}</div>
+            <div class="bubble">
+              <!-- Agent 的工具调用轨迹 -->
+              <div v-if="msg.toolCalls?.length" class="tool-trace">
+                <div class="trace-title">
+                  Agent 执行过程 · {{ msg.toolCalls.length }} 次工具调用
+                </div>
+                <div v-for="(call, i) in msg.toolCalls" :key="i" class="trace-item">
+                  <span class="trace-icon" :class="{ fail: !call.success }">
+                    {{ call.success ? '✓' : '✗' }}
+                  </span>
+                  <span class="trace-name">{{ call.tool }}</span>
+                  <span class="trace-arg">{{ call.arguments }}</span>
+                  <span class="trace-time">{{ call.durationMs }} ms</span>
+                  <div class="trace-result">{{ call.resultSummary }}</div>
+                </div>
+              </div>
+              <span class="bubble-text">{{ msg.content }}</span>
+            </div>
           </div>
 
           <div v-if="sending" class="message assistant">
@@ -426,8 +448,74 @@ onMounted(loadUsage)
   border-radius: 12px;
   font-size: 14px;
   line-height: 1.75;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 回答正文保留换行（工具轨迹区域不使用这个规则） */
+.bubble-text {
+  white-space: pre-wrap;
+}
+
+/* ---------- Agent 工具调用轨迹 ---------- */
+.tool-trace {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(34, 211, 238, 0.06);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+}
+
+.trace-title {
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  letter-spacing: 0.6px;
+  color: #7dd3fc;
+}
+
+.trace-item {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.trace-item:last-child {
+  margin-bottom: 0;
+}
+
+.trace-icon {
+  margin-right: 6px;
+  color: #34d399;
+  font-weight: 700;
+}
+
+.trace-icon.fail {
+  color: #f87171;
+}
+
+.trace-name {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.trace-arg {
+  margin-left: 6px;
+  color: #7d90a8;
+}
+
+.trace-time {
+  float: right;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-result {
+  margin-top: 3px;
+  padding-left: 16px;
+  line-height: 1.5;
+  color: #93a7bd;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .message.assistant .bubble {

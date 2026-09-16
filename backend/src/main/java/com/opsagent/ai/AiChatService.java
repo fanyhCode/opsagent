@@ -10,17 +10,19 @@ import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
- * AI 对话服务（M3.1：先打通普通对话）。
+ * AI 对话服务（M3.2：带工具调用的 Agent）。
  *
- * 这里用的是 Spring AI 的 ChatClient：
- *   chatClient.prompt().user("...").call().chatResponse() —— 拿到完整响应（含 token 用量）
+ * 整个 Agent 循环其实是 Spring AI 帮我们跑的：
+ * 用户提问 -> 模型决定调用哪个工具 -> Spring AI 执行工具 -> 结果回喂给模型 ->
+ * 模型可能继续调用工具 -> 直到给出最终回答。
  *
- * 为什么要封装成一个 Service 而不是直接写在 Controller 里？
- * 1. 系统提示词集中管理；
- * 2. 统一异常处理与日志；
- * 3. 统一记录用量（每次调用都会写一条 ai_usage 记录）；
- * 4. 下一步做工具调用时，只要在这里加 .tools(...)，Controller 不用改。
+ * 我们要做的只有三件事：
+ * 1. 用 @Tool 把平台能力暴露给模型（见 SystemMonitorTools）；
+ * 2. 把工具对象交给 ChatClient（下面的 .tools(...)）；
+ * 3. 用 ToolCallRecorder 记录调用轨迹，让前端能看到 Agent 做了什么。
  */
 @Service
 public class AiChatService {
@@ -28,8 +30,8 @@ public class AiChatService {
     private static final Logger log = LoggerFactory.getLogger(AiChatService.class);
 
     /**
-     * 系统提示词：定义 Agent 的角色与回答规范。
-     * 用 Java 17 的文本块（"""）书写，多行提示词不用再拼字符串。
+     * 系统提示词：定义角色、回答规范，以及什么时候该用工具。
+     * 提示词写得好不好，直接决定 Agent 会不会主动去采集真实数据。
      */
     private static final String SYSTEM_PROMPT = """
             你是 OpsAgent，一个 Linux 运维与故障诊断助手，服务对象是运维工程师。
@@ -37,34 +39,51 @@ public class AiChatService {
             回答要求：
             1. 全程使用中文，表达简洁，结论先行，必要时分点说明；
             2. 涉及 Linux 命令时，给出命令本身并说明它的作用；
-            3. 不确定的信息不要编造。如果缺少数据（比如没有实时指标、没有日志），
-               要明确说明"还需要采集哪些信息"，而不是凭空猜测；
-            4. 涉及重启服务、删除文件等有风险的操作时，必须提醒风险并建议先确认。
+            3. 不确定的信息不要编造；
+            4. 涉及重启服务、删除文件等有风险的操作时，必须提醒风险并建议人工确认。
+
+            工具使用规则：
+            1. 当问题涉及服务器当前的真实状态（CPU、内存、磁盘、负载、进程）时，
+               必须先用工具采集数据，再基于真实数据回答，禁止凭经验编造数值；
+            2. 如果用户没有指明是哪台服务器，先用 listServers 看看平台纳管了哪些服务器；
+            3. 工具返回错误（比如 SSH 连不上）时，如实说明失败原因并给出排查建议；
+            4. 你目前只有只读工具，不能执行重启容器、删除文件这类写操作。
+               遇到这类诉求，给出建议命令并提醒需要人工确认后再执行。
             """;
 
     private final ChatClient chatClient;
     private final AiUsageService aiUsageService;
+    private final SystemMonitorTools systemMonitorTools;
 
-    public AiChatService(ChatClient.Builder chatClientBuilder, AiUsageService aiUsageService) {
+    public AiChatService(ChatClient.Builder chatClientBuilder,
+                         AiUsageService aiUsageService,
+                         SystemMonitorTools systemMonitorTools) {
         this.chatClient = chatClientBuilder
                 .defaultSystem(SYSTEM_PROMPT)
                 .build();
         this.aiUsageService = aiUsageService;
+        this.systemMonitorTools = systemMonitorTools;
     }
 
     /**
-     * 一次普通对话（M3.2 会在此基础上加入工具调用）。
+     * 发起一次对话，模型可以自主调用只读工具。
      */
-    public String chat(String userMessage) {
+    public ChatResult chat(String userMessage) {
         if (userMessage == null || userMessage.isBlank()) {
             throw new BizException("请输入内容");
         }
+
+        // 清空本线程上一轮的工具调用记录
+        ToolCallRecorder.start();
+
         try {
             long start = System.currentTimeMillis();
 
-            // 用 chatResponse() 而不是 content()，因为我们要拿到 token 用量元数据
+            // .tools(...) 把工具对象交给模型：Spring AI 会自动完成
+            // 模型要求调用 -> 执行工具 -> 结果回喂 -> 继续推理 的多轮循环
             ChatResponse response = chatClient.prompt()
                     .user(userMessage)
+                    .tools(systemMonitorTools)
                     .call()
                     .chatResponse();
 
@@ -72,17 +91,23 @@ public class AiChatService {
             String answer = response.getResult().getOutput().getText();
 
             recordUsage(response, duration);
-            log.info("AI 对话完成，耗时 {} ms", duration);
-            return answer;
+            List<ToolCallRecord> toolCalls = ToolCallRecorder.finish();
+            log.info("AI 对话完成，耗时 {} ms，调用工具 {} 次", duration, toolCalls.size());
+
+            return new ChatResult(answer, toolCalls);
 
         } catch (Exception e) {
-            // 调用外部服务失败是常态（网络、额度、Key 无效），必须给出人能看懂的提示
+            // 异常路径也要清理 ThreadLocal，否则线程复用时会串数据
+            ToolCallRecorder.finish();
             log.error("调用大模型失败", e);
             throw new BizException("调用 AI 服务失败：" + AiErrorTranslator.friendly(e));
         }
     }
 
-    /** 记录本次调用的 token 用量与耗时 */
+    /**
+     * 记录本次调用的 token 用量与耗时。
+     * 即使记录失败也不能影响对话本身，所以整体包了 try/catch。
+     */
     private void recordUsage(ChatResponse response, long duration) {
         try {
             String model = response.getMetadata() == null ? null : response.getMetadata().getModel();
@@ -97,7 +122,6 @@ public class AiChatService {
                     currentUser == null ? null : currentUser.id(),
                     model, promptTokens, completionTokens, totalTokens, duration);
         } catch (Exception e) {
-            // 统计失败不能影响对话本身
             log.warn("记录 token 用量失败：{}", e.getMessage());
         }
     }
