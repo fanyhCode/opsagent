@@ -110,3 +110,38 @@ CREATE TABLE IF NOT EXISTS ai_usage
     KEY idx_created_at (created_at)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4 COMMENT ='AI 调用记录表';
+
+-- ------------------------------------------------------------
+-- 表 5：chat_session —— 对话会话表
+-- 一次"连续对话"就是一条会话记录，标题取自用户的第一句话。
+-- 会话的意义：让 Agent 记得上下文（"它内存为什么高"里的"它"指的是谁）。
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_session
+(
+    id         BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    user_id    BIGINT       NOT NULL COMMENT '所属用户 id',
+    title      VARCHAR(128) NOT NULL DEFAULT '新会话' COMMENT '会话标题',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后活动时间',
+    PRIMARY KEY (id),
+    KEY idx_user_updated (user_id, updated_at)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT ='对话会话表';
+
+-- ------------------------------------------------------------
+-- 表 6：chat_message —— 会话消息表
+-- 保存每一条用户提问与 Agent 回答，同时记录这次回答调用了哪些工具。
+-- 这张表同时也是"Agent 可观测性"的一部分：出问题时可以回放整段对话。
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_message
+(
+    id         BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    session_id BIGINT      NOT NULL COMMENT '所属会话 id',
+    role       VARCHAR(16) NOT NULL COMMENT '角色：USER 用户 / ASSISTANT 助手',
+    content    TEXT        NOT NULL COMMENT '消息内容',
+    tool_calls TEXT                 DEFAULT NULL COMMENT '本次回答的工具调用轨迹（JSON 数组）',
+    created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+    KEY idx_session_created (session_id, created_at)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT ='会话消息表';

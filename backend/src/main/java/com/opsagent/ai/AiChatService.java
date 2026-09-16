@@ -1,28 +1,37 @@
 package com.opsagent.ai;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opsagent.common.BizException;
+import com.opsagent.dto.ChatResult;
+import com.opsagent.entity.ChatMessage;
+import com.opsagent.entity.ChatSession;
 import com.opsagent.security.LoginUser;
 import com.opsagent.security.UserContext;
+import com.opsagent.service.ChatSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * AI 对话服务（M3.2：带工具调用的 Agent）。
+ * AI 对话服务（M3.3：带工具调用 + 多轮对话记忆）。
  *
- * 整个 Agent 循环其实是 Spring AI 帮我们跑的：
- * 用户提问 -> 模型决定调用哪个工具 -> Spring AI 执行工具 -> 结果回喂给模型 ->
- * 模型可能继续调用工具 -> 直到给出最终回答。
+ * 一次对话的完整流程：
+ * 1. 没有 sessionId 就新建一个会话，有就取出并**校验归属**；
+ * 2. 取出最近 N 条历史消息，和本次提问一起拼成消息列表交给模型；
+ * 3. 模型可以自主调用只读工具（Spring AI 负责循环）；
+ * 4. 把用户提问、助手回答、工具轨迹都落库，并更新会话标题与活动时间。
  *
- * 我们要做的只有三件事：
- * 1. 用 @Tool 把平台能力暴露给模型（见 SystemMonitorTools）；
- * 2. 把工具对象交给 ChatClient（下面的 .tools(...)）；
- * 3. 用 ToolCallRecorder 记录调用轨迹，让前端能看到 Agent 做了什么。
+ * 第 2 步是"记忆"的本质：模型本身是无状态的，所谓的上下文，
+ * 就是每一轮我们都把最近的历史重新发给它而已。
  */
 @Service
 public class AiChatService {
@@ -31,7 +40,6 @@ public class AiChatService {
 
     /**
      * 系统提示词：定义角色、回答规范，以及什么时候该用工具。
-     * 提示词写得好不好，直接决定 Agent 会不会主动去采集真实数据。
      */
     private static final String SYSTEM_PROMPT = """
             你是 OpsAgent，一个 Linux 运维与故障诊断助手，服务对象是运维工程师。
@@ -49,58 +57,106 @@ public class AiChatService {
             3. 工具返回错误（比如 SSH 连不上）时，如实说明失败原因并给出排查建议；
             4. 你目前只有只读工具，不能执行重启容器、删除文件这类写操作。
                遇到这类诉求，给出建议命令并提醒需要人工确认后再执行。
+
+            对话要求：
+            对话是多轮的，用户可能会用"它""那台机器""刚才说的服务"这类指代，
+            请结合上下文理解，不要每次都重新询问是哪台服务器。
             """;
 
     private final ChatClient chatClient;
     private final AiUsageService aiUsageService;
     private final SystemMonitorTools systemMonitorTools;
+    private final ChatSessionService chatSessionService;
+    private final ObjectMapper objectMapper;
 
     public AiChatService(ChatClient.Builder chatClientBuilder,
                          AiUsageService aiUsageService,
-                         SystemMonitorTools systemMonitorTools) {
+                         SystemMonitorTools systemMonitorTools,
+                         ChatSessionService chatSessionService,
+                         ObjectMapper objectMapper) {
         this.chatClient = chatClientBuilder
                 .defaultSystem(SYSTEM_PROMPT)
                 .build();
         this.aiUsageService = aiUsageService;
         this.systemMonitorTools = systemMonitorTools;
+        this.chatSessionService = chatSessionService;
+        this.objectMapper = objectMapper;
     }
 
     /**
-     * 发起一次对话，模型可以自主调用只读工具。
+     * 发起一次对话（自动处理会话与上下文）。
      */
-    public ChatResult chat(String userMessage) {
+    public ChatResult chat(Long sessionId, String userMessage, Long userId) {
         if (userMessage == null || userMessage.isBlank()) {
             throw new BizException("请输入内容");
         }
+        if (userId == null) {
+            throw new BizException(401, "未登录");
+        }
 
-        // 清空本线程上一轮的工具调用记录
+        // 1. 找会话：没有就新建，有就校验归属
+        ChatSession session = (sessionId == null)
+                ? chatSessionService.create(userId)
+                : chatSessionService.getOwned(sessionId, userId);
+
+        // 2. 取最近的历史消息（带条数上限，控制 token 成本）
+        List<ChatMessage> history = chatSessionService.recentMessages(
+                session.getId(), ChatSessionService.MAX_HISTORY_MESSAGES);
+
+        // 3. 先保存用户这条提问
+        chatSessionService.append(session.getId(), ChatMessage.ROLE_USER, userMessage, null);
+
+        // 4. 组装交给模型的消息：历史 + 本次提问
+        List<Message> modelMessages = new ArrayList<>();
+        for (ChatMessage item : history) {
+            modelMessages.add(ChatMessage.ROLE_USER.equals(item.getRole())
+                    ? new UserMessage(item.getContent())
+                    : new AssistantMessage(item.getContent()));
+        }
+        modelMessages.add(new UserMessage(userMessage));
+
         ToolCallRecorder.start();
 
         try {
             long start = System.currentTimeMillis();
 
-            // .tools(...) 把工具对象交给模型：Spring AI 会自动完成
-            // 模型要求调用 -> 执行工具 -> 结果回喂 -> 继续推理 的多轮循环
             ChatResponse response = chatClient.prompt()
-                    .user(userMessage)
+                    .messages(modelMessages)
                     .tools(systemMonitorTools)
                     .call()
                     .chatResponse();
 
             long duration = System.currentTimeMillis() - start;
             String answer = response.getResult().getOutput().getText();
+            List<ToolCallRecord> toolCalls = ToolCallRecorder.finish();
+
+            // 5. 落库：助手回答 + 工具轨迹，并更新会话标题与活动时间
+            chatSessionService.append(session.getId(), ChatMessage.ROLE_ASSISTANT,
+                    answer, toJson(toolCalls));
+            chatSessionService.autoTitle(session, userMessage);
+            chatSessionService.touch(session);
 
             recordUsage(response, duration);
-            List<ToolCallRecord> toolCalls = ToolCallRecorder.finish();
-            log.info("AI 对话完成，耗时 {} ms，调用工具 {} 次", duration, toolCalls.size());
+            log.info("AI 对话完成 session={} 耗时 {} ms，工具调用 {} 次",
+                    session.getId(), duration, toolCalls.size());
 
-            return new ChatResult(answer, toolCalls);
+            return new ChatResult(session.getId(), answer, toolCalls);
 
         } catch (Exception e) {
             // 异常路径也要清理 ThreadLocal，否则线程复用时会串数据
             ToolCallRecorder.finish();
             log.error("调用大模型失败", e);
             throw new BizException("调用 AI 服务失败：" + AiErrorTranslator.friendly(e));
+        }
+    }
+
+    /** 工具轨迹序列化成 JSON 存库（字段名保持稳定，方便以后解析） */
+    private String toJson(List<ToolCallRecord> toolCalls) {
+        try {
+            return objectMapper.writeValueAsString(toolCalls);
+        } catch (Exception e) {
+            log.warn("序列化工具轨迹失败：{}", e.getMessage());
+            return null;
         }
     }
 

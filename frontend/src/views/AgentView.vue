@@ -1,14 +1,21 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { chat, getUsage } from '../api/ai'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  chat,
+  deleteSession,
+  getSessionMessages,
+  getUsage,
+  listSessions
+} from '../api/ai'
 import { useUserStore } from '../stores/user'
 
 /**
- * AI 助手对话页（M3.1：普通对话）。
+ * AI 助手对话页（M3.3：多轮对话记忆 + 会话历史）。
  *
- * 当前版本只有一问一答；M3.2 接入工具调用后，
- * 这里会显示 Agent 调用了哪些工具、拿到了什么数据（工具执行轨迹）。
+ * 左侧是会话列表（可以新建、切换、删除），右侧是对话区。
+ * 每条助手消息上方会展示"Agent 执行过程"，也就是这次回答调用了哪些工具。
  */
 const router = useRouter()
 const userStore = useUserStore()
@@ -16,15 +23,47 @@ const userStore = useUserStore()
 const input = ref('')
 const sending = ref(false)
 const listRef = ref(null)
+
 const usage = ref(null)
 const usageLoading = ref(false)
 
-/** 余额展示文案：带币种符号；查不到时显示破折号 */
+const sessions = ref([])
+const currentSessionId = ref(null)
+const messages = ref([welcomeMessage()])
+
+function welcomeMessage() {
+  return {
+    role: 'assistant',
+    content:
+      '你好，我是 OpsAgent。\n\n' +
+      '我可以帮你查看服务器的实时状态（CPU、内存、磁盘、负载、进程），' +
+      '也可以回答 Linux、Docker、JVM 的运维问题。\n\n' +
+      '试着问我："这台服务器现在正常吗？"'
+  }
+}
+
+/** 余额展示文案 */
 const balanceText = computed(() => {
   if (!usage.value || usage.value.balance == null) return '—'
   const symbol = usage.value.currency === 'USD' ? '$ ' : '¥ '
   return symbol + usage.value.balance
 })
+
+/** 后端存的工具轨迹是 JSON 字符串，这里解析成数组 */
+function parseToolCalls(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  try {
+    return JSON.parse(raw)
+  } catch (e) {
+    return []
+  }
+}
+
+function formatTime(value) {
+  if (!value) return ''
+  return String(value).replace('T', ' ').slice(5, 16)
+}
 
 async function loadUsage() {
   usageLoading.value = true
@@ -32,27 +71,67 @@ async function loadUsage() {
     const res = await getUsage()
     usage.value = res.data
   } catch (e) {
-    // 错误提示由 axios 拦截器统一处理
+    // 提示由拦截器统一处理
   } finally {
     usageLoading.value = false
   }
 }
 
-const messages = ref([
-  {
-    role: 'assistant',
-    content:
-      '你好，我是 OpsAgent。\n\n' +
-      '现在我可以回答 Linux、Docker、JVM 相关的运维问题。\n' +
-      '下一步我会接入工具调用能力——那时你问"服务器 CPU 为什么高"，我会自己去采集数据再回答。'
+async function loadSessions() {
+  try {
+    const res = await listSessions()
+    sessions.value = res.data || []
+  } catch (e) {
+    // 提示由拦截器统一处理
   }
-])
+}
 
-const samples = [
-  '服务器 CPU 占用很高，应该怎么排查？',
-  'Redis 容器为什么会被 OOM 杀掉？',
-  'Java 服务频繁 Full GC 可能是什么原因？'
-]
+/** 打开一个历史会话：拉取消息并渲染 */
+async function openSession(sessionId) {
+  currentSessionId.value = sessionId
+  try {
+    const res = await getSessionMessages(sessionId)
+    const loaded = (res.data || []).map((item) => ({
+      role: item.role === 'USER' ? 'user' : 'assistant',
+      content: item.content,
+      toolCalls: parseToolCalls(item.toolCalls)
+    }))
+    messages.value = loaded.length ? loaded : [welcomeMessage()]
+    scrollToBottom()
+  } catch (e) {
+    // 提示由拦截器统一处理
+  }
+}
+
+/** 新建会话：只是把当前上下文清空，真正的会话记录在第一次提问时由后端创建 */
+function newSession() {
+  currentSessionId.value = null
+  messages.value = [welcomeMessage()]
+  input.value = ''
+}
+
+async function removeSession(sessionId) {
+  try {
+    await ElMessageBox.confirm('确定删除这个会话吗？删除后不可恢复。', '删除会话', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch (e) {
+    return // 用户取消
+  }
+
+  try {
+    await deleteSession(sessionId)
+    ElMessage.success('会话已删除')
+    if (currentSessionId.value === sessionId) {
+      newSession()
+    }
+    loadSessions()
+  } catch (e) {
+    // 提示由拦截器统一处理
+  }
+}
 
 async function send(text) {
   const content = (text ?? input.value).trim()
@@ -64,15 +143,16 @@ async function send(text) {
   scrollToBottom()
 
   try {
-    const res = await chat(content)
+    const res = await chat(content, currentSessionId.value)
+    // 新会话时后端会返回 sessionId，保存下来，后续提问就带上它实现"记忆"
+    currentSessionId.value = res.data.sessionId
     messages.value.push({
       role: 'assistant',
       content: res.data.answer,
-      // 后端返回的 Agent 工具调用轨迹（这一步 Agent 实际做了什么）
       toolCalls: res.data.toolCalls || []
     })
-    // 每次对话后刷新用量（后端刚写入一条 ai_usage 记录）
     loadUsage()
+    loadSessions()
   } catch (e) {
     messages.value.push({
       role: 'assistant',
@@ -93,7 +173,10 @@ function scrollToBottom() {
   })
 }
 
-onMounted(loadUsage)
+onMounted(() => {
+  loadUsage()
+  loadSessions()
+})
 </script>
 
 <template>
@@ -106,7 +189,7 @@ onMounted(loadUsage)
         <el-button link type="primary" @click="router.push({ name: 'servers' })">← 返回列表</el-button>
         <span class="divider"></span>
         <span class="brand-name">OpsAgent 助手</span>
-        <span class="brand-sub">M3.1 · 普通对话</span>
+        <span class="brand-sub">M3.3 · 多轮对话</span>
       </div>
       <div class="topbar-right">
         <span class="user-name">{{ userStore.user?.nickname || userStore.user?.username }}</span>
@@ -115,7 +198,7 @@ onMounted(loadUsage)
     </header>
 
     <main class="content">
-      <!-- 用量与余额概览 -->
+      <!-- 用量与余额 -->
       <section class="usage-strip glass-panel fade-up">
         <div class="usage-item">
           <span class="metric-label">账户余额</span>
@@ -142,7 +225,6 @@ onMounted(loadUsage)
         </div>
       </section>
 
-      <!-- 余额异常提醒 -->
       <el-alert
         v-if="usage?.balanceError"
         class="usage-alert"
@@ -160,71 +242,108 @@ onMounted(loadUsage)
         :title="`账户余额仅剩 ${balanceText}，已低于告警阈值 ¥${usage.threshold}，请及时充值，否则 Agent 将无法继续回答`"
       />
 
-      <section class="chat-panel glass-panel fade-up">
-        <div ref="listRef" class="message-list">
-          <div
-            v-for="(msg, index) in messages"
-            :key="index"
-            class="message"
-            :class="[msg.role, { error: msg.error }]"
-          >
-            <div class="avatar" :class="msg.role">
-              {{ msg.role === 'user' ? '我' : 'AI' }}
-            </div>
-            <div class="bubble">
-              <!-- Agent 的工具调用轨迹 -->
-              <div v-if="msg.toolCalls?.length" class="tool-trace">
-                <div class="trace-title">
-                  Agent 执行过程 · {{ msg.toolCalls.length }} 次工具调用
-                </div>
-                <div v-for="(call, i) in msg.toolCalls" :key="i" class="trace-item">
-                  <span class="trace-icon" :class="{ fail: !call.success }">
-                    {{ call.success ? '✓' : '✗' }}
-                  </span>
-                  <span class="trace-name">{{ call.tool }}</span>
-                  <span class="trace-arg">{{ call.arguments }}</span>
-                  <span class="trace-time">{{ call.durationMs }} ms</span>
-                  <div class="trace-result">{{ call.resultSummary }}</div>
-                </div>
+      <div class="chat-layout">
+        <!-- 会话列表 -->
+        <aside class="session-panel glass-panel fade-up">
+          <el-button class="new-btn" type="primary" plain @click="newSession">
+            + 新建会话
+          </el-button>
+
+          <div class="session-list">
+            <div
+              v-for="item in sessions"
+              :key="item.id"
+              class="session-item"
+              :class="{ active: item.id === currentSessionId }"
+              @click="openSession(item.id)"
+            >
+              <div class="session-main">
+                <div class="session-title">{{ item.title }}</div>
+                <div class="session-time">{{ formatTime(item.updatedAt) }}</div>
               </div>
-              <span class="bubble-text">{{ msg.content }}</span>
+              <el-button
+                class="session-del"
+                link
+                type="danger"
+                size="small"
+                @click.stop="removeSession(item.id)"
+              >
+                删除
+              </el-button>
+            </div>
+
+            <div v-if="sessions.length === 0" class="session-empty">
+              还没有历史会话<br />提问后会自动创建
+            </div>
+          </div>
+        </aside>
+
+        <!-- 对话区 -->
+        <section class="chat-panel glass-panel fade-up delay-1">
+          <div ref="listRef" class="message-list">
+            <div
+              v-for="(msg, index) in messages"
+              :key="index"
+              class="message"
+              :class="[msg.role, { error: msg.error }]"
+            >
+              <div class="avatar" :class="msg.role">
+                {{ msg.role === 'user' ? '我' : 'AI' }}
+              </div>
+              <div class="bubble">
+                <div v-if="msg.toolCalls?.length" class="tool-trace">
+                  <div class="trace-title">
+                    Agent 执行过程 · {{ msg.toolCalls.length }} 次工具调用
+                  </div>
+                  <div v-for="(call, i) in msg.toolCalls" :key="i" class="trace-item">
+                    <span class="trace-icon" :class="{ fail: !call.success }">
+                      {{ call.success ? '✓' : '✗' }}
+                    </span>
+                    <span class="trace-name">{{ call.tool }}</span>
+                    <span class="trace-arg">{{ call.arguments }}</span>
+                    <span class="trace-time">{{ call.durationMs }} ms</span>
+                    <div class="trace-result">{{ call.resultSummary }}</div>
+                  </div>
+                </div>
+                <span class="bubble-text">{{ msg.content }}</span>
+              </div>
+            </div>
+
+            <div v-if="sending" class="message assistant">
+              <div class="avatar assistant">AI</div>
+              <div class="bubble typing">
+                <span></span><span></span><span></span>
+              </div>
             </div>
           </div>
 
-          <div v-if="sending" class="message assistant">
-            <div class="avatar assistant">AI</div>
-            <div class="bubble typing">
-              <span></span><span></span><span></span>
-            </div>
+          <div class="samples">
+            <span class="samples-label">试试这样问：</span>
+            <el-tag
+              v-for="item in ['这台服务器现在正常吗？', 'CPU 占用最高的进程是哪些？', 'Redis 为什么会 OOM？']"
+              :key="item"
+              class="sample-tag"
+              size="small"
+              effect="plain"
+              @click="send(item)"
+            >
+              {{ item }}
+            </el-tag>
           </div>
-        </div>
 
-        <div class="samples">
-          <span class="samples-label">试试这样问：</span>
-          <el-tag
-            v-for="item in samples"
-            :key="item"
-            class="sample-tag"
-            size="small"
-            effect="plain"
-            @click="send(item)"
-          >
-            {{ item }}
-          </el-tag>
-        </div>
-
-        <div class="input-area">
-          <el-input
-            v-model="input"
-            type="textarea"
-            :rows="2"
-            resize="none"
-            placeholder="描述你遇到的运维问题，Enter 发送，Shift + Enter 换行"
-            @keydown.enter.exact.prevent="send()"
-          />
-          <el-button type="primary" :loading="sending" @click="send()">发送</el-button>
-        </div>
-      </section>
+          <div class="input-area">
+            <el-input
+              v-model="input"
+              type="textarea"
+              :rows="2"
+              resize="none"
+              placeholder="描述你遇到的运维问题，Enter 发送，Shift + Enter 换行"
+              @keydown.enter.exact.prevent="send()"
+            />
+            <el-button type="primary" :loading="sending" @click="send()">发送</el-button>
+          </div>
+        </section>
+      </div>
     </main>
   </div>
 </template>
@@ -260,6 +379,7 @@ onMounted(loadUsage)
   pointer-events: none;
 }
 
+/* ---------- 顶栏 ---------- */
 .topbar {
   position: relative;
   z-index: 2;
@@ -267,7 +387,7 @@ onMounted(loadUsage)
   align-items: center;
   justify-content: space-between;
   padding: 12px 20px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .brand {
@@ -313,19 +433,19 @@ onMounted(loadUsage)
   font-size: 12px;
 }
 
+/* ---------- 用量条 ---------- */
 .content {
   position: relative;
   z-index: 2;
 }
 
-/* ---------- 用量与余额 ---------- */
 .usage-strip {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 34px;
   padding: 14px 20px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .usage-item {
@@ -366,7 +486,7 @@ onMounted(loadUsage)
 }
 
 .usage-alert {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   border-radius: 10px;
 }
 
@@ -379,27 +499,97 @@ onMounted(loadUsage)
   animation: ops-spin 1s linear infinite;
 }
 
-.chat-panel {
+/* ---------- 会话 + 对话 两栏布局 ---------- */
+.chat-layout {
   display: flex;
-  flex-direction: column;
-  /* 页面顶部还有顶栏和用量条，这里要相应扣除，避免出现双滚动条 */
-  height: calc(100vh - 300px);
-  min-height: 320px;
-  padding: 18px 20px;
+  gap: 14px;
+  height: calc(100vh - 290px);
+  min-height: 360px;
 }
 
-@media (max-width: 900px) {
-  .usage-strip {
-    gap: 20px;
-  }
-  .usage-right {
-    width: 100%;
-    margin-left: 0;
-    justify-content: space-between;
-  }
-  .chat-panel {
-    height: calc(100vh - 380px);
-  }
+.session-panel {
+  flex: 0 0 250px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px;
+  overflow: hidden;
+}
+
+.new-btn {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.session-item:hover {
+  background: rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.session-item.active {
+  background: rgba(34, 211, 238, 0.1);
+  border-color: rgba(34, 211, 238, 0.4);
+}
+
+.session-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-title {
+  font-size: 13px;
+  color: #dbe6f3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-time {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #6b7d93;
+}
+
+.session-del {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.session-item:hover .session-del {
+  opacity: 1;
+}
+
+.session-empty {
+  padding: 30px 8px;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: #6b7d93;
+}
+
+/* ---------- 对话区 ---------- */
+.chat-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 18px;
 }
 
 .message-list {
@@ -443,7 +633,7 @@ onMounted(loadUsage)
 }
 
 .bubble {
-  max-width: 72%;
+  max-width: 76%;
   padding: 12px 16px;
   border-radius: 12px;
   font-size: 14px;
@@ -451,12 +641,29 @@ onMounted(loadUsage)
   word-break: break-word;
 }
 
-/* 回答正文保留换行（工具轨迹区域不使用这个规则） */
 .bubble-text {
   white-space: pre-wrap;
 }
 
-/* ---------- Agent 工具调用轨迹 ---------- */
+.message.assistant .bubble {
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  color: #dbe6f3;
+}
+
+.message.user .bubble {
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(99, 102, 241, 0.18));
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  color: #eaf6ff;
+}
+
+.message.error .bubble {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fecaca;
+}
+
+/* Agent 工具调用轨迹 */
 .tool-trace {
   margin-bottom: 10px;
   padding: 10px 12px;
@@ -518,24 +725,6 @@ onMounted(loadUsage)
   overflow: hidden;
 }
 
-.message.assistant .bubble {
-  background: rgba(148, 163, 184, 0.08);
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  color: #dbe6f3;
-}
-
-.message.user .bubble {
-  background: linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(99, 102, 241, 0.18));
-  border: 1px solid rgba(34, 211, 238, 0.35);
-  color: #eaf6ff;
-}
-
-.message.error .bubble {
-  border-color: rgba(248, 113, 113, 0.45);
-  background: rgba(248, 113, 113, 0.1);
-  color: #fecaca;
-}
-
 /* 打字中动画 */
 .typing span {
   display: inline-block;
@@ -560,7 +749,7 @@ onMounted(loadUsage)
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 2px 10px;
+  padding: 10px 2px;
   border-top: 1px solid rgba(148, 163, 184, 0.1);
 }
 
@@ -601,4 +790,26 @@ onMounted(loadUsage)
   border-color: rgba(34, 211, 238, 0.6);
   box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 0 18px rgba(34, 211, 238, 0.15);
 }
+
+/* ---------- 小屏自适应 ---------- */
+@media (max-width: 1000px) {
+  .chat-layout {
+    flex-direction: column;
+    height: auto;
+  }
+  .session-panel {
+    flex: 0 0 auto;
+    max-height: 180px;
+  }
+  .chat-panel {
+    height: 60vh;
+  }
+  .usage-right {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+}
+
+/* 样式版本标记：v2（会话列表 + 多轮对话） */
 </style>
