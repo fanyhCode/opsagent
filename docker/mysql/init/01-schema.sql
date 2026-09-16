@@ -90,3 +90,23 @@ CREATE TABLE IF NOT EXISTS server_metric
     KEY idx_server_time (server_id, created_at)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4 COMMENT ='服务器指标采集表';
+
+-- ------------------------------------------------------------
+-- 表 4：ai_usage —— AI 调用记录表
+-- 作用：每次调用大模型都记一条，记录消耗的 token 数量与耗时。
+-- 有了它，前端就能显示"今日用量/累计用量"，也为后面的 Agent 可观测性打基础。
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_usage
+(
+    id                BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    user_id           BIGINT               DEFAULT NULL COMMENT '调用者用户 id',
+    model             VARCHAR(64) NOT NULL DEFAULT '' COMMENT '模型名称，例如 deepseek-chat',
+    prompt_tokens     INT         NOT NULL DEFAULT 0 COMMENT '输入 token 数',
+    completion_tokens INT         NOT NULL DEFAULT 0 COMMENT '输出 token 数',
+    total_tokens      INT         NOT NULL DEFAULT 0 COMMENT '总 token 数',
+    duration_ms       BIGINT      NOT NULL DEFAULT 0 COMMENT '本次调用耗时（毫秒）',
+    created_at        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '调用时间',
+    PRIMARY KEY (id),
+    KEY idx_created_at (created_at)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT ='AI 调用记录表';

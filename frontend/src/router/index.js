@@ -26,6 +26,11 @@ const routes = [
     path: '/monitor/:id',
     name: 'monitor',
     component: () => import('../views/MonitorView.vue')
+  },
+  {
+    path: '/agent',
+    name: 'agent',
+    component: () => import('../views/AgentView.vue')
   }
 ]
 

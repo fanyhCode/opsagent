@@ -70,6 +70,9 @@ onMounted(loadServers)
         <span class="brand-sub">智能运维控制台</span>
       </div>
       <div class="topbar-right">
+        <el-button size="small" type="primary" plain @click="router.push({ name: 'agent' })">
+          AI 助手
+        </el-button>
         <div class="user-chip">
           <div class="avatar">{{ (userStore.user?.nickname || userStore.user?.username || 'U').slice(0, 1) }}</div>
           <div class="user-meta">

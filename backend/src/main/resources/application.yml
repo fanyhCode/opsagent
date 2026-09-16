@@ -23,6 +23,26 @@ spring:
     # 那是以前项目用的，和本项目无关，别把两个密码搞混。
     password: opsagent123
 
+  # ============ AI 模型配置（DeepSeek）============
+  # ⚠️ 前缀必须是 spring.ai，这是 Spring AI 约定的固定前缀。
+  #    之前误写到 opsagent.ai 下面，Spring AI 完全读不到，启动时就报
+  #    "OpenAI API key must be set"——这个坑记住：配置写对位置和信息填对同样重要。
+  #
+  # 说明：DeepSeek 提供 OpenAI 兼容接口，所以直接用 Spring AI 的 OpenAI 适配器，
+  # 只要把 base-url 指向 DeepSeek 即可，不需要专门的 SDK。
+  ai:
+    openai:
+      base-url: https://api.deepseek.com
+      # API Key 从环境变量读取，绝不写死在配置里（仓库是公开的！）
+      # 冒号后面是"环境变量不存在时的默认值"
+      api-key: ${DEEPSEEK_API_KEY:not-configured}
+      chat:
+        options:
+          # deepseek-chat：通用对话模型；deepseek-reasoner：推理模型（更慢更贵）
+          model: deepseek-chat
+          # 0~2，越高回答越随机。运维诊断场景建议偏低，减少胡编
+          temperature: 0.3
+
 # MyBatis-Plus 配置
 mybatis-plus:
   configuration:
@@ -54,3 +74,10 @@ opsagent:
     # 采集间隔（毫秒）。30000 = 每 30 秒采集一次。
     # 间隔越短曲线越细，但 SSH 连接和对目标服务器的压力也越大，按需调整。
     interval-ms: 30000
+
+  # AI 用量与余额相关配置
+  ai:
+    # 余额告警阈值（元）：低于这个值，前端会弹提醒
+    balance-warn-threshold: 5
+    # 余额查询结果的缓存时长（秒）。余额变化慢，没必要每次刷新页面都去查一次接口
+    balance-cache-seconds: 300
