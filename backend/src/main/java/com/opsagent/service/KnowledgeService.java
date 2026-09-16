@@ -194,9 +194,17 @@ public class KnowledgeService {
     }
 
     /**
-     * 按段落切片：
-     * 优先在段落边界切，避免把一句话从中间截断；相邻切片保留一段重叠，
-     * 防止跨段落的关键信息被切开后两边都检索不到。
+     * 文档切片。
+     *
+     * 三级切分策略（从优到劣）：
+     * 1. 先按空行分段、再按行细分——我们的故障案例都是"每行一条排查步骤"的写法，
+     *    这样切出来的片段永远是完整的句子和完整的步骤；
+     * 2. 只有当某一行本身就超过 chunkSize 时，才退化成按字符数硬切；
+     * 3. 相邻切片之间保留 chunkOverlap 个字符的重叠，
+     *    防止"跨边界的关键信息"两边都检索不到。
+     *
+     * 最初版本只按字符数切，结果出现了"从半句话开始"的切片（实测发现的问题），
+     * 这版改成按行优先，切片更语义完整，检索命中率也更高。
      */
     private List<String> splitIntoChunks(String content) {
         List<String> chunks = new ArrayList<>();
@@ -205,39 +213,50 @@ public class KnowledgeService {
         }
 
         StringBuilder buffer = new StringBuilder();
-        for (String rawParagraph : content.split("\\n\\s*\\n")) {
-            String paragraph = rawParagraph.trim();
-            if (paragraph.isEmpty()) {
-                continue;
-            }
+        for (String paragraph : content.split("\\n\\s*\\n")) {
+            for (String rawLine : paragraph.split("\\n")) {
+                String line = rawLine.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
 
-            if (paragraph.length() > chunkSize) {
-                if (buffer.length() > 0) {
-                    chunks.add(buffer.toString().trim());
-                    buffer.setLength(0);
+                // 单行就超长：只能按字符硬切
+                if (line.length() > chunkSize) {
+                    flush(chunks, buffer);
+                    int step = Math.max(1, chunkSize - chunkOverlap);
+                    for (int i = 0; i < line.length(); i += step) {
+                        chunks.add(line.substring(i, Math.min(line.length(), i + chunkSize)));
+                    }
+                    continue;
                 }
-                int step = Math.max(1, chunkSize - chunkOverlap);
-                for (int i = 0; i < paragraph.length(); i += step) {
-                    chunks.add(paragraph.substring(i, Math.min(paragraph.length(), i + chunkSize)));
-                }
-                continue;
-            }
 
-            if (buffer.length() + paragraph.length() > chunkSize && buffer.length() > 0) {
-                String previous = buffer.toString().trim();
-                chunks.add(previous);
-                buffer.setLength(0);
-                if (chunkOverlap > 0 && previous.length() > chunkOverlap) {
-                    buffer.append(previous.substring(previous.length() - chunkOverlap)).append("\n\n");
+                // 装不下了：结算当前切片，并保留一段重叠
+                if (buffer.length() + line.length() > chunkSize && buffer.length() > 0) {
+                    String previous = buffer.toString().trim();
+                    flush(chunks, buffer);
+                    if (chunkOverlap > 0 && previous.length() > chunkOverlap) {
+                        buffer.append(previous.substring(previous.length() - chunkOverlap)).append("\n");
+                    }
                 }
+                buffer.append(line).append("\n");
             }
-            buffer.append(paragraph).append("\n\n");
+            // 段落之间留一个换行，保持切片可读性
+            if (buffer.length() > 0) {
+                buffer.append("\n");
+            }
         }
 
-        if (buffer.length() > 0) {
-            chunks.add(buffer.toString().trim());
-        }
+        flush(chunks, buffer);
         return chunks;
+    }
+
+    /** 把缓冲区内容结算成一个切片，并清空缓冲区 */
+    private void flush(List<String> chunks, StringBuilder buffer) {
+        String text = buffer.toString().trim();
+        if (!text.isEmpty()) {
+            chunks.add(text);
+        }
+        buffer.setLength(0);
     }
 
     /** 余弦相似度：衡量两个向量方向的一致性，值域 0~1 */

@@ -70,6 +70,9 @@ onMounted(loadServers)
         <span class="brand-sub">智能运维控制台</span>
       </div>
       <div class="topbar-right">
+        <el-button size="small" plain @click="router.push({ name: 'knowledge' })">
+          知识库
+        </el-button>
         <el-button size="small" plain @click="router.push({ name: 'observability' })">
           审计与观测
         </el-button>
@@ -237,6 +240,7 @@ onMounted(loadServers)
 .topbar-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
 }
 
