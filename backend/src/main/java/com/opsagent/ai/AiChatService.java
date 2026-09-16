@@ -8,6 +8,7 @@ import com.opsagent.entity.ChatSession;
 import com.opsagent.security.LoginUser;
 import com.opsagent.security.UserContext;
 import com.opsagent.service.ChatSessionService;
+import com.opsagent.service.ObservabilityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -79,6 +80,7 @@ public class AiChatService {
     private final ContainerTools containerTools;
     private final OperationTools operationTools;
     private final ChatSessionService chatSessionService;
+    private final ObservabilityService observabilityService;
     private final ObjectMapper objectMapper;
 
     public AiChatService(ChatClient.Builder chatClientBuilder,
@@ -87,6 +89,7 @@ public class AiChatService {
                          ContainerTools containerTools,
                          OperationTools operationTools,
                          ChatSessionService chatSessionService,
+                         ObservabilityService observabilityService,
                          ObjectMapper objectMapper) {
         this.chatClient = chatClientBuilder
                 .defaultSystem(SYSTEM_PROMPT)
@@ -96,6 +99,7 @@ public class AiChatService {
         this.containerTools = containerTools;
         this.operationTools = operationTools;
         this.chatSessionService = chatSessionService;
+        this.observabilityService = observabilityService;
         this.objectMapper = objectMapper;
     }
 
@@ -153,6 +157,11 @@ public class AiChatService {
                     answer, toJson(toolCalls));
             chatSessionService.autoTitle(session, userMessage);
             chatSessionService.touch(session);
+
+            // 把本轮的工具调用逐条落库，用于可观测性统计
+            LoginUser loginUser = UserContext.get();
+            observabilityService.recordToolCalls(session.getId(),
+                    loginUser == null ? null : loginUser.id(), toolCalls);
 
             recordUsage(response, duration);
             log.info("AI 对话完成 session={} 耗时 {} ms，工具调用 {} 次",

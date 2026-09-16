@@ -70,6 +70,9 @@ onMounted(loadServers)
         <span class="brand-sub">智能运维控制台</span>
       </div>
       <div class="topbar-right">
+        <el-button size="small" plain @click="router.push({ name: 'observability' })">
+          审计与观测
+        </el-button>
         <el-button size="small" type="primary" plain @click="router.push({ name: 'agent' })">
           AI 助手
         </el-button>

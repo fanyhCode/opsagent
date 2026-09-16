@@ -176,3 +176,26 @@ CREATE TABLE IF NOT EXISTS command_audit
     KEY idx_user_created (user_id, created_at)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4 COMMENT ='命令审计表';
+
+-- ------------------------------------------------------------
+-- 表 8：agent_execution —— Agent 工具调用记录表
+-- 作用：Agent 每一次工具调用都记一条（工具名、参数、耗时、成功与否）。
+-- 这是"Agent 可观测性"的数据基础：能统计出哪个工具被调用最多、
+-- 平均耗时多少、失败率多高——出问题时可以回放整个执行链路。
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agent_execution
+(
+    id             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    session_id     BIGINT                DEFAULT NULL COMMENT '所属会话 id',
+    user_id        BIGINT                DEFAULT NULL COMMENT '调用用户 id',
+    tool_name      VARCHAR(64)  NOT NULL COMMENT '工具名称',
+    arguments      VARCHAR(255)          DEFAULT NULL COMMENT '调用参数',
+    result_summary VARCHAR(500)          DEFAULT NULL COMMENT '结果摘要',
+    duration_ms    BIGINT       NOT NULL DEFAULT 0 COMMENT '执行耗时（毫秒）',
+    success        TINYINT      NOT NULL DEFAULT 1 COMMENT '是否成功：1 成功，0 失败',
+    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '调用时间',
+    PRIMARY KEY (id),
+    KEY idx_created (created_at),
+    KEY idx_tool (tool_name)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4 COMMENT ='Agent 工具调用记录表';

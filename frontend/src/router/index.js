@@ -31,6 +31,11 @@ const routes = [
     path: '/agent',
     name: 'agent',
     component: () => import('../views/AgentView.vue')
+  },
+  {
+    path: '/observability',
+    name: 'observability',
+    component: () => import('../views/ObservabilityView.vue')
   }
 ]
 
